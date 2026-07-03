@@ -32,9 +32,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lingua.english.data.speech.SpeechInputState
 import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.components.LocalWordLookup
+import com.lingua.english.ui.components.MicButton
 import com.lingua.english.ui.components.TappableText
+import com.lingua.english.ui.components.appendDictation
+import com.lingua.english.ui.components.rememberSpeechInput
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaSecondary
 
@@ -44,6 +48,14 @@ fun ComposeEntryScreen(vm: ComposeEntryViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val lookup = LocalWordLookup.current
+
+    // 语音输入 (中文): 懒得打字时直接说今天干了什么
+    var dictationBase by remember { mutableStateOf("") }
+    val speech = rememberSpeechInput(
+        onPartial = { partial -> input = appendDictation(dictationBase, partial) },
+        onFinal = { final -> input = appendDictation(dictationBase, final) },
+    )
+    val speechState by speech.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.saved) {
         if (state.saved) {
@@ -62,7 +74,12 @@ fun ComposeEntryScreen(vm: ComposeEntryViewModel, onBack: () -> Unit) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
-                Text("随手记", style = MaterialTheme.typography.headlineMedium)
+                Text("随手记", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                MicButton(
+                    controller = speech,
+                    languageTag = "zh-CN",
+                    onStartDictation = { dictationBase = input },
+                )
             }
         }
 
@@ -75,11 +92,16 @@ fun ComposeEntryScreen(vm: ComposeEntryViewModel, onBack: () -> Unit) {
                     .heightIn(min = 140.dp),
                 placeholder = {
                     Text(
-                        "今天做了什么? 在想什么? 什么心情?\n中文、英文、混着写都行。",
+                        if (speechState is SpeechInputState.Listening) "正在听, 用中文说就行…"
+                        else "今天做了什么? 在想什么? 什么心情?\n说 (右上麦克风) 或写, 中文、英文、混着都行。",
                         color = LinguaOnSurfaceMuted,
                     )
                 },
             )
+        }
+
+        (speechState as? SpeechInputState.Error)?.let { error ->
+            item { Text(error.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         }
 
         item {

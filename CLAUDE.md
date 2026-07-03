@@ -29,7 +29,11 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **TTS**: `TtsProvider` 接口 + `SystemTtsProvider` (系统 TTS 锁 en-GB,挑非联网 voice;缺英音语音包时降级默认英语并在设置页提示)。**接口是留给将来 API TTS 的,别绕过它直接 new TextToSpeech**
   - **AI**: `ChatApiClient` 双协议 (OpenAI Chat Completions + Anthropic Messages),9 预设,BYOK,移植自 Vita 的 `DirectApiInsightProvider` 改多轮+system;设置页测试连接。OpenAI 路径刻意不发 temperature/max_tokens (兼容性)
   - **执行系统计数**: `daily_log` 表四个计数器 (复习/听/聊/记),repo 层动作时自增;streak = 保底 (任一动作) 连续天数
-- ⚠️ **待真机验证**: 全部功能没跑过真机——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转。charlotte Android Studio 打开 → Sync → Run
+- ✅ **2026-07-04 语音输入** (charlotte: 先加语音输入):
+  - `data/speech/SpeechInputController.kt`: 系统 `SpeechRecognizer` 封装 (不引第三方 SDK), StateFlow 状态机 Idle/Listening/Error, 错误码转人话; 设备缺识别服务 (无 Google app 的 ROM) 给友好提示不崩。Manifest 加 `RECORD_AUDIO` + `RecognitionService` 包可见性。
+  - `ui/components/SpeechInput.kt`: `rememberSpeechInput` (跟组合生命周期销毁) + `MicButton` (内置运行时权限申请) + `appendDictation` (CJK 之间不加空格)。
+  - **对话页说英文 (en-GB)**: 麦克风在输入框左侧; **随手记说中文 (zh-CN)**: 麦克风在标题栏右侧。听写实时进输入框 (partial), 从按下时的 `dictationBase` 往后拼, 已手动编辑的部分不被覆盖; **不自动发送**, 说完可改再发。引擎停顿自动结束一段, 继续说再按一次。
+- ⚠️ **待真机验证**: 全部功能没跑过真机——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
 
 ## 技术栈
 
@@ -64,12 +68,12 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradle
 
 ## 下一步候选 (待 charlotte 决定优先级)
 
-1. 真机跑通全链路,特别是 TTS 英音和词典
-2. 语音输入 (SpeechRecognizer) — OIO 输出环节动嘴说,而不只是打字
-3. 聊天流式输出 (SSE)
-4. 数据备份 (JSON 导出/导入,抄 Vita 的 BackupManager)
-5. 记录提醒 (抄 Vita 的 ReminderScheduler)
-6. 图标换正式设计 (现在是占位 L 字)
+1. 真机跑通全链路,特别是 TTS 英音、词典、语音输入
+2. 聊天流式输出 (SSE)
+3. 数据备份 (JSON 导出/导入,抄 Vita 的 BackupManager)
+4. 记录提醒 (抄 Vita 的 ReminderScheduler)
+5. 图标换正式设计 (现在是占位 L 字)
+6. 发音打分/跟读对比 (说一句和 TTS 原句对照) — 要真机验证语音识别质量后再评估
 
 ## 关联项目
 

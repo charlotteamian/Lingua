@@ -38,8 +38,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.local.entity.ChatMessageEntity
+import com.lingua.english.data.speech.SpeechInputState
 import com.lingua.english.ui.components.LocalWordLookup
+import com.lingua.english.ui.components.MicButton
 import com.lingua.english.ui.components.TappableText
+import com.lingua.english.ui.components.appendDictation
+import com.lingua.english.ui.components.rememberSpeechInput
 import com.lingua.english.ui.theme.LinguaAmber
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaSecondary
@@ -51,6 +55,14 @@ fun ChatScreen(vm: ChatViewModel) {
     val sendState by vm.sendState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
+
+    // 语音输入 (英文): 听写从 dictationBase 起往后拼, 手动编辑过的部分不会被覆盖
+    var dictationBase by remember { mutableStateOf("") }
+    val speech = rememberSpeechInput(
+        onPartial = { partial -> input = appendDictation(dictationBase, partial) },
+        onFinal = { final -> input = appendDictation(dictationBase, final) },
+    )
+    val speechState by speech.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(messages.size, sendState.sending) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size)
@@ -107,16 +119,35 @@ fun ChatScreen(vm: ChatViewModel) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
+        (speechState as? SpeechInputState.Error)?.let { error ->
+            Text(
+                error.message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
 
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            MicButton(
+                controller = speech,
+                languageTag = "en-GB",
+                onStartDictation = { dictationBase = input },
+            )
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("用英文聊聊你正在做的事…", color = LinguaOnSurfaceMuted) },
+                placeholder = {
+                    Text(
+                        if (speechState is SpeechInputState.Listening) "正在听, 开口说英文…"
+                        else "说或写英文, 聊聊你正在做的事…",
+                        color = LinguaOnSurfaceMuted,
+                    )
+                },
                 maxLines = 4,
                 shape = RoundedCornerShape(20.dp),
             )
