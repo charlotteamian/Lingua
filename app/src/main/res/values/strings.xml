@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lingua</string>
+
+    <string name="nav_today">今日</string>
+    <string name="nav_chat">对话</string>
+    <string name="nav_corpus">语料</string>
+    <string name="nav_review">复习</string>
+
+    <string name="title_settings">设置</string>
+    <string name="title_compose_entry">随手记</string>
+    <string name="title_material_detail">语料</string>
+
+    <string name="chat_input_hint">用英文聊聊你正在做的事…</string>
+    <string name="chat_send">发送</string>
+    <string name="chat_new_topic">新话题</string>
+
+    <string name="dict_add_vocab">加入生词本</string>
+    <string name="dict_added_vocab">已在生词本</string>
+    <string name="dict_online_source">在线词典 · dictionaryapi.dev</string>
+    <string name="dict_not_found">没查到这个词</string>
+
+    <string name="review_show_answer">显示答案</string>
+    <string name="review_forgot">忘了</string>
+    <string name="review_fuzzy">模糊</string>
+    <string name="review_good">记得</string>
+
+    <string name="settings_ai_title">AI 对话服务</string>
+    <string name="settings_ai_test">测试连接</string>
+    <string name="settings_tts_title">英音发音</string>
+    <string name="settings_profile_title">学习偏好</string>
+    <string name="settings_data_title">数据</string>
+</resources>

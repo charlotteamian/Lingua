@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 接管 UI,这里只需要一个深色 splash 主题避免启动闪白 -->
+    <style name="Theme.Lingua" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#06080f</item>
+        <item name="android:navigationBarColor">#06080f</item>
+        <item name="android:windowBackground">@color/lingua_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

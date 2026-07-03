@@ -1,0 +1,83 @@
+package com.lingua.english.ui.screens.settings
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.lingua.english.data.ai.ChatApiClient
+import com.lingua.english.data.dict.DictRepository
+import com.lingua.english.data.prefs.SettingsPreferences
+import com.lingua.english.data.repository.ChatRepository
+import com.lingua.english.data.tts.TtsProvider
+import com.lingua.english.data.tts.TtsStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+data class ApiTestState(val testing: Boolean = false, val result: String? = null, val ok: Boolean = false)
+
+class SettingsViewModel(
+    private val prefs: SettingsPreferences,
+    private val client: ChatApiClient,
+    private val chatRepo: ChatRepository,
+    private val dict: DictRepository,
+    val tts: TtsProvider,
+) : ViewModel() {
+
+    private fun <T> flowOf(source: kotlinx.coroutines.flow.Flow<T>, default: T): StateFlow<T> =
+        source.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), default)
+
+    val aiPreset = flowOf(prefs.aiApiPreset, "deepseek")
+    val aiBaseUrl = flowOf(prefs.aiApiBaseUrl, "")
+    val aiKey = flowOf(prefs.aiApiKey, "")
+    val aiModel = flowOf(prefs.aiApiModel, "")
+    val ttsRate = flowOf(prefs.ttsRate, 0.9f)
+    val profile = flowOf(prefs.learnerProfile, "")
+    val level = flowOf(prefs.learnerLevel, "intermediate")
+
+    val ttsStatus: StateFlow<TtsStatus> = tts.status
+
+    private val _apiTest = MutableStateFlow(ApiTestState())
+    val apiTest: StateFlow<ApiTestState> = _apiTest
+
+    private val _dictWords = MutableStateFlow(0)
+    val dictWords: StateFlow<Int> = _dictWords
+
+    init {
+        viewModelScope.launch {
+            _dictWords.value = withContext(Dispatchers.IO) {
+                runCatching { dict.offlineWordCount() }.getOrDefault(0)
+            }
+        }
+    }
+
+    fun setPreset(id: String) = viewModelScope.launch { prefs.setAiApiPreset(id) }
+    fun setBaseUrl(url: String) = viewModelScope.launch { prefs.setAiApiBaseUrl(url) }
+    fun setKey(key: String) = viewModelScope.launch { prefs.setAiApiKey(key) }
+    fun setModel(model: String) = viewModelScope.launch { prefs.setAiApiModel(model) }
+    fun setProfile(text: String) = viewModelScope.launch { prefs.setLearnerProfile(text) }
+    fun setLevel(level: String) = viewModelScope.launch { prefs.setLearnerLevel(level) }
+
+    fun setTtsRate(rate: Float) {
+        tts.setRate(rate)
+        viewModelScope.launch { prefs.setTtsRate(rate) }
+    }
+
+    fun tryVoice() = tts.speak("Right then, shall we get started?")
+
+    fun testConnection() {
+        if (_apiTest.value.testing) return
+        _apiTest.value = ApiTestState(testing = true)
+        viewModelScope.launch {
+            runCatching { client.testConnection() }
+                .onSuccess { _apiTest.value = ApiTestState(result = it, ok = true) }
+                .onFailure { _apiTest.value = ApiTestState(result = it.message ?: "连接失败", ok = false) }
+        }
+    }
+
+    fun clearChat() {
+        viewModelScope.launch { chatRepo.clearAll() }
+    }
+}
