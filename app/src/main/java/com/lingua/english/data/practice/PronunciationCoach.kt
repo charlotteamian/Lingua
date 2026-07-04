@@ -139,12 +139,14 @@ class PronunciationCoach(
 
         val words = wordsOf(targetText)
         val indexed = words.mapIndexed { i, w -> "$i:$w" }.joinToString(" ")
+        // 点评标准可在设置页改, 空 = 内置默认; 前后的结构部分 (文本/单词表/JSON 格式) 固定
+        val rules = prefs.pronRules.first().trim().ifEmpty { DEFAULT_RULES }
         val prompt = """
 你是英式英语 (RP, Received Pronunciation) 发音教练。用户朗读了下面这段文字, 录音已附上。
 目标文本: $targetText
 带编号的单词表: $indexed
 
-对照录音逐词判断: 哪些单词发音明显有问题 (漏读、读成别的词、重音位置错、元音/辅音明显偏)。参考 RP 标准, 但不要吹毛求疵——能听懂、只是口音轻微的不要标; 录音里没读到的结尾部分只标最先漏掉的一两个词。
+$rules
 只输出 JSON, 不要其它文字:
 {"overall":"一句中文总评(不超过40字)","words":[{"i":单词编号,"w":"单词原样","issue":"哪里不对(中文,不超过20字)","tip":"怎么读对(中文,可含音标,不超过40字)"}]}
 读得好就让 words 是空数组。
@@ -209,5 +211,11 @@ class PronunciationCoach(
 
         /** 与跟读标记共用的分词规则 (和 TappableText 一致)。 */
         fun wordsOf(text: String): List<String> = WORD_REGEX.findAll(text).map { it.value }.toList()
+
+        /** 默认点评标准, 设置页展示并可改; 「恢复默认」即回到这段。 */
+        const val DEFAULT_RULES =
+            "对照录音逐词判断: 哪些单词发音明显有问题 (漏读、读成别的词、重音位置错、元音/辅音明显偏)。" +
+                "参考 RP 标准, 但不要吹毛求疵——能听懂、只是口音轻微的不要标; " +
+                "录音里没读到的结尾部分只标最先漏掉的一两个词。"
     }
 }

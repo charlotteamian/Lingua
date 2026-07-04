@@ -48,7 +48,12 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
     - `data/practice/PronunciationCoach.kt`: MediaRecorder 录 AAC-ADTS 16kHz 到 cacheDir → **音频 inlineData 直发 Gemini generateContent** (用对话模型, 默认 gemini-3.5-flash 的原生音频理解) + 带编号单词表提示词 → 返回 JSON `{overall, words:[{i,w,issue,tip}]}` (RP 标准、明确要求不吹毛求疵); 下标消毒 (编号对不上按词文本找回, 找不到丢弃)。**仅支持 Gemini 预设** (要音频输入), 其它服务商抛可读错误。
     - `PronunciationScreen`: 原文中问题词红色下划线+浅红底, **点问题词 = 听 AI 读该词**, 其余词照常点词查词典; 问题词卡片列出 issue/tip + [听 AI 读] [听我的录音] (MediaPlayer 回放本地录音); 大按钮 开始朗读→读完交给 AI 点评→再读一遍; **每次评估整体替换标记, 读对了标记自然消失**。空标记时绿卡「这一遍没有需要标记的发音 ✓」。
     - 已知简化: 「听我的录音」回放整段而非单词片段 (逐词切片需时间戳对齐, 待模型能可靠返回再做); 标记不落库, 退出页面即清。
-- ⚠️ **待真机验证**: 跟读全链路 (录音→Gemini 点评→标记→复读消标; 免费档下音频请求是否受限)、云端合成失败原因显示、新语速/语调、麦克风弹窗兜底——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
+- ✅ **2026-07-04 对话改语音消息 + 三连需求 (提示词可改/收藏句子/纠正后置)**:
+  - **对话语音输入重做 (charlotte: 听写一停顿就断、第一次按必报错)**: 对话页麦克风从 SpeechRecognizer 听写改成**录语音消息直发 Gemini** (`VoiceRecorder` MediaRecorder AAC → `ChatApiClient.voiceChatGemini` 原生端点 systemInstruction+文字历史+音频 inlineData → JSON `{transcript, reply}`)。想说多久说多久, 录音条有计时/取消/发送, 90s 自动发。用户气泡 = 可播放语音条 (MediaPlayer) + 模型转写文字 (可点词); 转写回填 `chat_message.content`, 历史上下文用文字不重复传音频。**DB v1→v2** (`MIGRATION_1_2`: chat_message 加 audioPath)。录音归档 `files/chat_audio/`, 清空对话时一并删。随手记的中文听写保持原样 (弹窗兜底仍在)。
+  - **✎ 纠正后置 (charlotte: AI 开头总复述我的话很疑惑)**: tutorSystem 规则 5/6 重写——先像朋友一样回应内容, ✎ better 行放在**回复最末尾**且至多一条; 中文输入也是先回应最后给英文说法。
+  - **跟读点评标准可编辑**: `PronunciationCoach.DEFAULT_RULES` (公开常量) + `prefs.pronRules` (空=默认); 设置页新卡「跟读点评标准」预填默认文本可改 (严/松/只盯重音…), 「恢复默认」清空。提示词结构部分 (目标文本/单词表/JSON 格式) 固定不可改, 只开放评判标准段。
+  - **收藏句子 → 复习「出中文说英文」**: ChunkEntity 新 kind=`sentence`; `ReviewRepository.addSentence` 收藏时 AI 顺手翻中文当卡面 (失败不阻塞); 入口: 对话每条消息气泡的 BookmarkAdd 图标 + 语料详情播放行的 BookmarkAdd → `SentenceCollectSheet` (按句切分, 跳过 ✎/▸ 行, 点一句收一句)。复习页句子卡: 正面中文 + **「开口说英文 (录音对比)」**——录音 → `PronunciationCoach.assess(原句)` → 自动亮答案 + 列差异 (漏词/读错词/总评); 也可「直接看答案」。评完一张 speakCompare 状态重置。
+  - 验证: assembleDebug 通过。**待真机**: 语音消息全链路 (录→发→转写回填→气泡回放)、DB v2 迁移后旧聊天无恙、✎ 是否真的到末尾 (模型遵循度)、收藏句子→复习句子卡→说英文对比闭环。——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
 
 ## 技术栈
 

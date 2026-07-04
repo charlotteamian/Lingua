@@ -15,10 +15,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,6 +36,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,12 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.local.entity.ChatMessageEntity
 import com.lingua.english.ui.components.LinguaCard
-import com.lingua.english.data.speech.SpeechInputState
 import com.lingua.english.ui.components.LocalWordLookup
-import com.lingua.english.ui.components.MicButton
+import com.lingua.english.ui.components.SentenceCollectSheet
 import com.lingua.english.ui.components.TappableText
-import com.lingua.english.ui.components.appendDictation
-import com.lingua.english.ui.components.rememberSpeechInput
 import com.lingua.english.ui.theme.LinguaAmber
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaSecondary
@@ -58,18 +67,23 @@ fun ChatScreen(vm: ChatViewModel) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val sendState by vm.sendState.collectAsStateWithLifecycle()
     val hideText by vm.hideChatText.collectAsStateWithLifecycle()
+    val voice by vm.voice.collectAsStateWithLifecycle()
+    val playingVoice by vm.playingVoice.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val context = LocalContext.current
     var input by remember { mutableStateOf("") }
     // 通话模式下被点开显示文字的消息 id
     val revealedIds = remember { mutableStateListOf<String>() }
 
-    // 语音输入 (英文): 听写从 dictationBase 起往后拼, 手动编辑过的部分不会被覆盖
-    var dictationBase by remember { mutableStateOf("") }
-    val speech = rememberSpeechInput(
-        onPartial = { partial -> input = appendDictation(dictationBase, partial) },
-        onFinal = { final -> input = appendDictation(dictationBase, final) },
-    )
-    val speechState by speech.state.collectAsStateWithLifecycle()
+    // 收藏句子底部卡: 非空 = 打开, 值为来源消息全文
+    var collectSource by remember { mutableStateOf<String?>(null) }
+    val collectedSentences by vm.collectedSentences.collectAsStateWithLifecycle()
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) vm.startVoice()
+    }
 
     LaunchedEffect(messages.size, sendState.sending) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size)
@@ -108,9 +122,12 @@ fun ChatScreen(vm: ChatViewModel) {
                 MessageBubble(
                     message = message,
                     hidden = hideText && message.role == "assistant" && message.id !in revealedIds,
+                    playingVoice = playingVoice,
                     onReveal = { revealedIds.add(message.id) },
                     onSpeak = vm::speak,
                     onSaveChunk = vm::saveChunk,
+                    onToggleVoice = vm::toggleVoicePlayback,
+                    onCollect = { collectSource = message.content },
                 )
             }
             if (sendState.sending) {
@@ -134,53 +151,76 @@ fun ChatScreen(vm: ChatViewModel) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        (speechState as? SpeechInputState.Error)?.let { error ->
-            Text(
-                error.message,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-        }
-
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            MicButton(
-                controller = speech,
-                languageTag = "en-GB",
-                onStartDictation = { dictationBase = input },
-            )
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                placeholder = {
-                    Text(
-                        if (speechState is SpeechInputState.Listening) "正在听…" else "说或写英文…",
-                        color = LinguaOnSurfaceMuted,
-                        maxLines = 1,
-                    )
-                },
-                maxLines = 4,
-                shape = RoundedCornerShape(20.dp),
-            )
-            IconButton(
-                onClick = {
-                    vm.send(input)
-                    input = ""
-                },
-                enabled = input.isNotBlank() && !sendState.sending,
+        if (voice.recording) {
+            // 录音条: 想说多久说多久, 停顿不会被掐断
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "发送",
-                    tint = if (input.isNotBlank()) MaterialTheme.colorScheme.primary else LinguaOnSurfaceMuted,
+                Icon(Icons.Filled.Mic, contentDescription = null, tint = LinguaSecondary)
+                Text(
+                    "  正在录音 %d:%02d".format(voice.seconds / 60, voice.seconds % 60),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
                 )
+                TextButton(onClick = vm::cancelVoice) { Text("取消") }
+                Button(onClick = vm::stopAndSendVoice) { Text("发送") }
+            }
+        } else {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                IconButton(
+                    onClick = {
+                        val granted = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (granted) vm.startVoice()
+                        else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    enabled = !sendState.sending,
+                ) {
+                    Icon(
+                        Icons.Outlined.Mic,
+                        contentDescription = "按一下开始录语音",
+                        tint = LinguaOnSurfaceMuted,
+                    )
+                }
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text("写英文, 或点麦克风说…", color = LinguaOnSurfaceMuted, maxLines = 1)
+                    },
+                    maxLines = 4,
+                    shape = RoundedCornerShape(20.dp),
+                )
+                IconButton(
+                    onClick = {
+                        vm.send(input)
+                        input = ""
+                    },
+                    enabled = input.isNotBlank() && !sendState.sending,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "发送",
+                        tint = if (input.isNotBlank()) MaterialTheme.colorScheme.primary else LinguaOnSurfaceMuted,
+                    )
+                }
             }
         }
     }
+
+    SentenceCollectSheet(
+        sourceText = collectSource,
+        collected = collectedSentences,
+        onCollect = vm::collectSentence,
+        onDismiss = { collectSource = null },
+    )
 }
 
 @Composable
@@ -200,9 +240,12 @@ private fun EmptyChatHint() {
 private fun MessageBubble(
     message: ChatMessageEntity,
     hidden: Boolean,
+    playingVoice: String?,
     onReveal: () -> Unit,
     onSpeak: (String) -> Unit,
     onSaveChunk: (String, String) -> Unit,
+    onToggleVoice: (String) -> Unit,
+    onCollect: () -> Unit,
 ) {
     val isUser = message.role == "user"
     val lookup = LocalWordLookup.current
@@ -221,7 +264,39 @@ private fun MessageBubble(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             when {
-                isUser -> TappableText(message.content, onWordTap = lookup)
+                isUser -> {
+                    message.audioPath?.let { path ->
+                        Row(
+                            modifier = Modifier.clickable { onToggleVoice(path) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (playingVoice == path) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                                contentDescription = "播放语音",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                if (playingVoice == path) " 播放中…" else " 我的语音",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                    if (message.content.isNotBlank()) {
+                        TappableText(message.content, onWordTap = lookup)
+                        Row {
+                            IconButton(onClick = onCollect, modifier = Modifier.size(24.dp)) {
+                                Icon(
+                                    Icons.Outlined.BookmarkAdd,
+                                    contentDescription = "收藏句子",
+                                    tint = LinguaOnSurfaceMuted,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // 通话模式: 只给声音, 点按显示文字
                 hidden -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -253,6 +328,16 @@ private fun MessageBubble(
                                 tint = LinguaOnSurfaceMuted,
                                 modifier = Modifier.size(16.dp),
                             )
+                        }
+                        if (message.content.isNotBlank()) {
+                            IconButton(onClick = onCollect, modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    Icons.Outlined.BookmarkAdd,
+                                    contentDescription = "收藏句子",
+                                    tint = LinguaOnSurfaceMuted,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
                         }
                     }
                 }

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.lingua.english.data.local.dao.ChatDao
 import com.lingua.english.data.local.dao.ChunkDao
 import com.lingua.english.data.local.dao.DailyLogDao
@@ -20,7 +22,7 @@ import com.lingua.english.data.local.entity.MaterialEntity
         ChunkEntity::class,
         DailyLogEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class LinguaDatabase : RoomDatabase() {
@@ -33,13 +35,21 @@ abstract class LinguaDatabase : RoomDatabase() {
         @Volatile
         private var instance: LinguaDatabase? = null
 
+        /** v1→v2: 聊天消息加语音文件路径 (语音消息功能)。 */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_message ADD COLUMN audioPath TEXT")
+            }
+        }
+
         fun get(context: Context): LinguaDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     LinguaDatabase::class.java,
                     "lingua.db",
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2)
+                    .build().also { instance = it }
             }
     }
 }

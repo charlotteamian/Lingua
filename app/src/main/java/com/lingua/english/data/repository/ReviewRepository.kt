@@ -1,5 +1,7 @@
 package com.lingua.english.data.repository
 
+import com.lingua.english.data.ai.ChatApiClient
+import com.lingua.english.data.ai.ChatTurn
 import com.lingua.english.data.local.dao.ChunkDao
 import com.lingua.english.data.local.dao.DailyLogDao
 import com.lingua.english.data.local.entity.ChunkEntity
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 class ReviewRepository(
     private val chunkDao: ChunkDao,
     private val dailyLogDao: DailyLogDao,
+    private val client: ChatApiClient,
 ) {
 
     fun dueCards(today: LocalDate = LocalDate.now()): Flow<List<ChunkEntity>> =
@@ -58,4 +61,36 @@ class ReviewRepository(
     }
 
     suspend fun hasText(text: String): Boolean = chunkDao.hasText(text)
+
+    /**
+     * 收藏整句进复习: AI 顺手翻一句中文当卡片正面 (失败不阻塞收藏, 正面留空)。
+     * 复习时出中文 → 学习者说英文 → 跟读对比。
+     */
+    suspend fun addSentence(english: String): Boolean {
+        val sentence = english.trim()
+        if (sentence.isEmpty() || chunkDao.hasText(sentence)) return false
+        val zh = runCatching {
+            client.chat(
+                system = "",
+                turns = listOf(ChatTurn("user", "把这句英文翻译成自然的中文, 只输出译文, 不要引号:\n$sentence")),
+                maxTokens = 256,
+            )
+        }.getOrNull()?.trim().orEmpty().take(200)
+        val today = LocalDate.now()
+        chunkDao.insertAll(
+            listOf(
+                ChunkEntity(
+                    id = UUID.randomUUID().toString(),
+                    materialId = null,
+                    text = sentence,
+                    meaningZh = zh,
+                    note = "收藏的句子",
+                    kind = ChunkEntity.KIND_SENTENCE,
+                    createdAtEpochMs = System.currentTimeMillis(),
+                    dueEpochDay = today.toEpochDay(),
+                )
+            )
+        )
+        return true
+    }
 }

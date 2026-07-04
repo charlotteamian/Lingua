@@ -53,6 +53,10 @@ class SettingsPreferences(context: Context) {
     val ttsModel: Flow<String> = ds.data.map { it[KEY_TTS_MODEL] ?: "gemini-2.5-flash-preview-tts" }
     suspend fun setTtsModel(model: String) = ds.edit { it[KEY_TTS_MODEL] = model }
 
+    /** 跟读点评标准 (提示词可编辑段)。空串 = 用内置默认。 */
+    val pronRules: Flow<String> = ds.data.map { it[KEY_PRON_RULES] ?: "" }
+    suspend fun setPronRules(rules: String) = ds.edit { it[KEY_PRON_RULES] = rules }
+
     // ─── 对话 ────────────────────────────────────────────────
 
     /** Poppy 回复到达后自动朗读 (接近实时通话)。 */
@@ -83,6 +87,7 @@ class SettingsPreferences(context: Context) {
         private val KEY_TTS_VOICE = stringPreferencesKey("tts_voice")
         private val KEY_TTS_MODEL = stringPreferencesKey("tts_model")
         private val KEY_AUTO_READ = booleanPreferencesKey("auto_read_replies")
+        private val KEY_PRON_RULES = stringPreferencesKey("pron_rules")
         private val KEY_HIDE_CHAT_TEXT = booleanPreferencesKey("hide_chat_text")
         private val KEY_PROFILE = stringPreferencesKey("learner_profile")
         private val KEY_LEVEL = stringPreferencesKey("learner_level")

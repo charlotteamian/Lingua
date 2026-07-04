@@ -1,5 +1,9 @@
 package com.lingua.english.ui.screens.review
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,8 +32,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.local.entity.ChunkEntity
 import com.lingua.english.domain.ReviewGrade
@@ -48,7 +54,16 @@ fun ReviewScreen(vm: ReviewViewModel) {
     val due by vm.dueCards.collectAsStateWithLifecycle()
     val all by vm.allChunks.collectAsStateWithLifecycle()
     val session by vm.session.collectAsStateWithLifecycle()
+    val speak by vm.speakCompare.collectAsStateWithLifecycle()
     val lookup = LocalWordLookup.current
+    val context = LocalContext.current
+
+    val currentCard = due.firstOrNull()
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) currentCard?.let { vm.toggleSpeakCompare(it) }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -72,7 +87,11 @@ fun ReviewScreen(vm: ReviewViewModel) {
             item {
                 LinguaCard(background = LinguaGradients.reviewAccent) {
                     Text(
-                        if (card.kind == ChunkEntity.KIND_WORD) "生词" else "词块",
+                        when (card.kind) {
+                            ChunkEntity.KIND_WORD -> "生词"
+                            ChunkEntity.KIND_SENTENCE -> "句子 · 出中文说英文"
+                            else -> "词块"
+                        },
                         color = LinguaOnSurfaceMuted,
                         style = MaterialTheme.typography.labelMedium,
                     )
@@ -81,14 +100,44 @@ fun ReviewScreen(vm: ReviewViewModel) {
                         Text("提示: ${card.note}", color = LinguaOnSurfaceMuted, style = MaterialTheme.typography.bodyMedium)
                     }
 
-                    if (!session.showAnswer) {
+    if (!session.showAnswer) {
                         Text(
-                            "先在脑子里 (最好出声) 用英文说出来, 再看答案。",
+                            if (card.kind == ChunkEntity.KIND_SENTENCE)
+                                "看着中文, 直接开口说英文——说完 AI 对比你和原句的差别。"
+                            else "先在脑子里 (最好出声) 用英文说出来, 再看答案。",
                             color = LinguaOnSurfaceMuted,
                             style = MaterialTheme.typography.bodyMedium,
                         )
-                        Button(onClick = { vm.showAnswer(card) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("显示答案")
+                        if (card.kind == ChunkEntity.KIND_SENTENCE) {
+                            Button(
+                                onClick = {
+                                    if (speak.recording) {
+                                        vm.toggleSpeakCompare(card)
+                                    } else {
+                                        val granted = ContextCompat.checkSelfPermission(
+                                            context, Manifest.permission.RECORD_AUDIO,
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (granted) vm.toggleSpeakCompare(card)
+                                        else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                },
+                                enabled = !speak.assessing,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    when {
+                                        speak.recording -> "说完了, 对比差别"
+                                        speak.assessing -> "AI 正在对比…"
+                                        else -> "开口说英文 (录音对比)"
+                                    }
+                                )
+                            }
+                            speak.error?.let { error ->
+                                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        OutlinedButton(onClick = { vm.showAnswer(card) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("直接看答案")
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -108,6 +157,22 @@ fun ReviewScreen(vm: ReviewViewModel) {
                         }
                         if (card.note.isNotEmpty()) {
                             Text(card.note, color = LinguaOnSurfaceMuted, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        // 句子卡说完英文后的对比结果
+                        if (speak.done) {
+                            speak.overall?.let { overall ->
+                                Text(overall, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            speak.issues.forEach { issue ->
+                                Text(
+                                    "· ${issue.w} — ${issue.issue}",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                            if (speak.issues.isEmpty() && speak.overall == null) {
+                                Text("和原句基本一致 ✓", color = LinguaTertiary, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                         Spacer(Modifier.height(4.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -186,7 +251,13 @@ private fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (S
             }
             Text(
                 buildString {
-                    append(if (chunk.kind == ChunkEntity.KIND_WORD) "生词" else "词块")
+                    append(
+                        when (chunk.kind) {
+                            ChunkEntity.KIND_WORD -> "生词"
+                            ChunkEntity.KIND_SENTENCE -> "句子"
+                            else -> "词块"
+                        }
+                    )
                     append(" · ")
                     val days = chunk.dueEpochDay - today
                     append(if (days <= 0) "今天到期" else "${days} 天后到期")

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.components.LocalWordLookup
+import com.lingua.english.ui.components.SentenceCollectSheet
 import com.lingua.english.ui.components.TappableText
 import com.lingua.english.ui.theme.LinguaGradients
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
@@ -57,8 +59,10 @@ fun MaterialDetailScreen(
     val material by vm.material.collectAsStateWithLifecycle()
     val chunks by vm.chunks.collectAsStateWithLifecycle()
     val rate by vm.ttsRate.collectAsStateWithLifecycle()
+    val collectedSentences by vm.collectedSentences.collectAsStateWithLifecycle()
     val lookup = LocalWordLookup.current
     var confirmDelete by remember { mutableStateOf(false) }
+    var collectSource by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -95,6 +99,13 @@ fun MaterialDetailScreen(
                         }
                         IconButton(onClick = vm::stop) {
                             Icon(Icons.Filled.Stop, contentDescription = "停止", tint = LinguaOnSurfaceMuted)
+                        }
+                        IconButton(onClick = { collectSource = m.english }) {
+                            Icon(
+                                Icons.Outlined.BookmarkAdd,
+                                contentDescription = "收藏句子",
+                                tint = LinguaOnSurfaceMuted,
+                            )
                         }
                         Text(
                             "语速",
@@ -201,6 +212,13 @@ fun MaterialDetailScreen(
             }
         }
     }
+
+    SentenceCollectSheet(
+        sourceText = collectSource,
+        collected = collectedSentences,
+        onCollect = vm::collectSentence,
+        onDismiss = { collectSource = null },
+    )
 
     if (confirmDelete) {
         AlertDialog(

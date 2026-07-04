@@ -21,7 +21,10 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
             TodayViewModel(container.planRepository, container.reviewRepository, container.prefs) as T
 
         modelClass.isAssignableFrom(ChatViewModel::class.java) ->
-            ChatViewModel(container.chatRepository, container.reviewRepository, container.tts, container.prefs) as T
+            ChatViewModel(
+                container.chatRepository, container.reviewRepository, container.tts,
+                container.prefs, container.voiceRecorder,
+            ) as T
 
         modelClass.isAssignableFrom(CorpusViewModel::class.java) ->
             CorpusViewModel(container.materialRepository) as T
@@ -30,7 +33,7 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
             ComposeEntryViewModel(container.materialRepository) as T
 
         modelClass.isAssignableFrom(ReviewViewModel::class.java) ->
-            ReviewViewModel(container.reviewRepository, container.tts) as T
+            ReviewViewModel(container.reviewRepository, container.tts, container.pronunciationCoach) as T
 
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(
@@ -48,7 +51,8 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
                     MaterialDetailViewModel(
-                        container.materialRepository, container.prefs, container.tts, materialId,
+                        container.materialRepository, container.reviewRepository,
+                        container.prefs, container.tts, materialId,
                     ) as T
             }
 

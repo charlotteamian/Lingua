@@ -42,6 +42,7 @@ class SettingsViewModel(
     val hideChatText = flowOf(prefs.hideChatText, false)
     val profile = flowOf(prefs.learnerProfile, "")
     val level = flowOf(prefs.learnerLevel, "intermediate")
+    val pronRules = flowOf(prefs.pronRules, "")
 
     val ttsStatus: StateFlow<TtsStatus> = tts.status
 
@@ -65,6 +66,7 @@ class SettingsViewModel(
     fun setModel(model: String) = viewModelScope.launch { prefs.setAiApiModel(model) }
     fun setProfile(text: String) = viewModelScope.launch { prefs.setLearnerProfile(text) }
     fun setLevel(level: String) = viewModelScope.launch { prefs.setLearnerLevel(level) }
+    fun setPronRules(rules: String) = viewModelScope.launch { prefs.setPronRules(rules) }
 
     fun setTtsRate(rate: Float) {
         tts.setRate(rate)

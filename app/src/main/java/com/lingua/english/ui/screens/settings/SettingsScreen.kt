@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.ai.AiApiPresets
 import com.lingua.english.data.ai.Prompts
+import com.lingua.english.data.practice.PronunciationCoach
 import com.lingua.english.data.tts.TtsStatus
 import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
@@ -67,6 +68,7 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     val cloudTtsError by vm.cloudTtsError.collectAsStateWithLifecycle()
     val profile by vm.profile.collectAsStateWithLifecycle()
     val level by vm.level.collectAsStateWithLifecycle()
+    val pronRules by vm.pronRules.collectAsStateWithLifecycle()
     val dictWords by vm.dictWords.collectAsStateWithLifecycle()
 
     // 输入框用本地 state, 失焦/变更即写 DataStore (本地存储, 无需保存按钮)
@@ -75,6 +77,10 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     var modelInput by remember(model) { mutableStateOf(model) }
     var ttsModelInput by remember(ttsModel) { mutableStateOf(ttsModel) }
     var profileInput by remember(profile) { mutableStateOf(profile) }
+    // 空 = 用默认; 展示时预填默认文本, 学习者在此基础上改
+    var pronRulesInput by remember(pronRules) {
+        mutableStateOf(pronRules.ifEmpty { PronunciationCoach.DEFAULT_RULES })
+    }
     var showKey by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
 
@@ -281,6 +287,28 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                     label = { Text("自我介绍 (说给 Poppy 听)") },
                     placeholder = { Text("职业、兴趣、最近在忙什么…对话会围绕你的生活展开") },
                 )
+            }
+        }
+
+        item {
+            LinguaCard {
+                Text("跟读点评标准", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "跟读练习和句子对比时给 AI 的评判要求, 可按自己的偏好改 (严一点/松一点/只盯重音…)。",
+                    color = LinguaOnSurfaceMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = pronRulesInput,
+                    onValueChange = { pronRulesInput = it; vm.setPronRules(it) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp),
+                )
+                OutlinedButton(onClick = {
+                    vm.setPronRules("")
+                    pronRulesInput = PronunciationCoach.DEFAULT_RULES
+                }) { Text("恢复默认") }
             }
         }
 

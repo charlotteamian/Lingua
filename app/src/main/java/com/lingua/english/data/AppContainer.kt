@@ -12,10 +12,12 @@ import com.lingua.english.data.repository.ChatRepository
 import com.lingua.english.data.repository.MaterialRepository
 import com.lingua.english.data.repository.PlanRepository
 import com.lingua.english.data.repository.ReviewRepository
+import com.lingua.english.data.speech.VoiceRecorder
 import com.lingua.english.data.tts.GeminiTtsProvider
 import com.lingua.english.data.tts.RoutingTtsProvider
 import com.lingua.english.data.tts.SystemTtsProvider
 import com.lingua.english.data.tts.TtsProvider
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,15 +51,21 @@ class AppContainer(context: Context) {
     val pronunciationCoach: PronunciationCoach by lazy { PronunciationCoach(appContext, prefs) }
 
     val chatRepository: ChatRepository by lazy {
-        ChatRepository(database.chatDao(), database.dailyLogDao(), chatApiClient, prefs)
+        ChatRepository(
+            database.chatDao(), database.dailyLogDao(), chatApiClient, prefs,
+            audioDir = File(appContext.filesDir, "chat_audio"),
+        )
     }
+
+    /** 对话页语音消息录音器。 */
+    val voiceRecorder: VoiceRecorder by lazy { VoiceRecorder(appContext) }
 
     val materialRepository: MaterialRepository by lazy {
         MaterialRepository(database.materialDao(), database.chunkDao(), database.dailyLogDao(), chatApiClient, prefs)
     }
 
     val reviewRepository: ReviewRepository by lazy {
-        ReviewRepository(database.chunkDao(), database.dailyLogDao())
+        ReviewRepository(database.chunkDao(), database.dailyLogDao(), chatApiClient)
     }
 
     val planRepository: PlanRepository by lazy {

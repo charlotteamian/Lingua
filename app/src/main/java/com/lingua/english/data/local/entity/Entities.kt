@@ -4,7 +4,10 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/** 一条对话消息。context break 用于「新话题」: 组装上下文时只取最后一个 break 之后的消息。 */
+/**
+ * 一条对话消息。context break 用于「新话题」: 组装上下文时只取最后一个 break 之后的消息。
+ * 语音消息: audioPath 指向本地录音, content 是模型转写的文字 (转写前为空串)。
+ */
 @Entity(tableName = "chat_message")
 data class ChatMessageEntity(
     @PrimaryKey val id: String,
@@ -12,6 +15,7 @@ data class ChatMessageEntity(
     val content: String,
     val createdAtEpochMs: Long,
     val contextBreak: Boolean = false,
+    val audioPath: String? = null,
 )
 
 /** 一条「随手记→英文语料」。sourceText 是原始记录 (中文/混合), english 是 AI 转写。 */
@@ -51,6 +55,8 @@ data class ChunkEntity(
     companion object {
         const val KIND_CHUNK = "chunk"
         const val KIND_WORD = "word"
+        /** 收藏的整句: 复习时出中文, 学习者说英文再对比。 */
+        const val KIND_SENTENCE = "sentence"
     }
 }
 

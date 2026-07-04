@@ -8,6 +8,7 @@ import com.lingua.english.data.prefs.SettingsPreferences
 import com.lingua.english.data.repository.ConvertedChunk
 import com.lingua.english.data.repository.ConvertedMaterial
 import com.lingua.english.data.repository.MaterialRepository
+import com.lingua.english.data.repository.ReviewRepository
 import com.lingua.english.data.tts.TtsProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,10 +81,22 @@ class ComposeEntryViewModel(
 /** 语料详情页 (按 materialId 参数化)。 */
 class MaterialDetailViewModel(
     private val materialRepo: MaterialRepository,
+    private val reviewRepo: ReviewRepository,
     private val prefs: SettingsPreferences,
     private val tts: TtsProvider,
     materialId: String,
 ) : ViewModel() {
+
+    /** 本次会话已收藏的句子 (底部卡显示 ✓)。 */
+    private val _collectedSentences = MutableStateFlow<Set<String>>(emptySet())
+    val collectedSentences: StateFlow<Set<String>> = _collectedSentences
+
+    fun collectSentence(sentence: String) {
+        _collectedSentences.value += sentence
+        viewModelScope.launch {
+            runCatching { reviewRepo.addSentence(sentence) }
+        }
+    }
 
     val material: StateFlow<MaterialEntity?> = materialRepo.material(materialId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

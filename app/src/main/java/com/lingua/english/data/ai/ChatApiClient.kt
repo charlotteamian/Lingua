@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -14,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -52,6 +54,10 @@ class AiException(message: String, cause: Throwable? = null) : Exception(message
 /** 对话的一轮, role = user / assistant。 */
 data class ChatTurn(val role: String, val content: String)
 
+/** 语音消息的一轮结果: 模型转写 + 回复。 */
+@Serializable
+data class VoiceChatResult(val transcript: String = "", val reply: String = "")
+
 /**
  * API 直连聊天客户端 (BYOK): 手机直接调大模型 API, 费用走用户自己的 Key。
  * 双协议移植自 Vita 的 DirectApiInsightProvider, 扩展成多轮 + system 提示。
@@ -83,6 +89,71 @@ class ChatApiClient(private val prefs: SettingsPreferences) {
             AiApiDialect.OPENAI -> chatOpenAi(cfg, system, turns)
             AiApiDialect.ANTHROPIC -> chatAnthropic(cfg, system, turns, maxTokens)
         }
+    }
+
+    /**
+     * 语音消息轮: 音频直发 Gemini 原生端点 (音频理解), 模型转写 + 按角色规则回复。
+     * 只支持 Gemini 预设; 历史上下文仍是文字。
+     */
+    suspend fun voiceChatGemini(
+        system: String,
+        turns: List<ChatTurn>,
+        audioBase64: String,
+    ): VoiceChatResult = withContext(Dispatchers.IO) {
+        val preset = AiApiPresets.byId(prefs.aiApiPreset.first())
+        if (preset.id != "gemini") {
+            throw AiException("语音消息要用 Gemini 的音频理解, 请在设置里把 AI 对话服务切到 Gemini。")
+        }
+        val apiKey = prefs.aiApiKey.first().trim()
+        if (apiKey.isEmpty()) throw AiException("请先在设置页填写 API Key。")
+        val model = prefs.aiApiModel.first().trim().ifEmpty { "gemini-3.5-flash" }
+        val cfg = ApiConfig(AiApiDialect.OPENAI, "https://generativelanguage.googleapis.com", apiKey, model)
+
+        val body = buildJsonObject {
+            if (system.isNotBlank()) {
+                putJsonObject("systemInstruction") {
+                    putJsonArray("parts") { addJsonObject { put("text", system) } }
+                }
+            }
+            putJsonArray("contents") {
+                turns.forEach { turn ->
+                    addJsonObject {
+                        put("role", if (turn.role == "assistant") "model" else "user")
+                        putJsonArray("parts") { addJsonObject { put("text", turn.content) } }
+                    }
+                }
+                addJsonObject {
+                    put("role", "user")
+                    putJsonArray("parts") {
+                        addJsonObject {
+                            putJsonObject("inlineData") {
+                                put("mimeType", "audio/aac")
+                                put("data", audioBase64)
+                            }
+                        }
+                        addJsonObject { put("text", VOICE_TURN_INSTRUCTION) }
+                    }
+                }
+            }
+        }
+        val root = execute(
+            cfg,
+            url = "${cfg.baseUrl}/v1beta/models/$model:generateContent",
+            headers = mapOf("x-goog-api-key" to apiKey),
+            bodyJson = body.toString(),
+        )
+        val text = runCatching {
+            root.jsonObject["candidates"]!!.jsonArray[0]
+                .jsonObject["content"]!!.jsonObject["parts"]!!.jsonArray
+                .mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }
+                .joinToString("")
+        }.getOrNull()
+        if (text.isNullOrBlank()) throw AiException("模型没有返回内容, 再试一次。")
+        val result = runCatching {
+            json.decodeFromString(VoiceChatResult.serializer(), extractJsonObject(text))
+        }.getOrElse { throw AiException("语音回复无法解析, 再试一次。", it) }
+        if (result.reply.isBlank()) throw AiException("模型没有给出回复, 再试一次。")
+        result
     }
 
     /** 设置页「测试连接」。 */
@@ -226,6 +297,14 @@ class ChatApiClient(private val prefs: SettingsPreferences) {
 
     companion object {
         private const val CHAT_MAX_TOKENS = 2048
+
+        /** 跟在语音后面的指令: 先转写再回复, 严格 JSON。 */
+        private val VOICE_TURN_INSTRUCTION = """
+学习者这一轮是语音消息 (音频在上面)。请:
+1. "transcript": 把TA说的话原样转写成文字 (英文照写, 说了中文就写中文, 不要纠正)。
+2. "reply": 按你的系统角色规则正常回复这段话 (包括 ✎ 纠正行和 ▸ 词块行的规则)。
+只输出 JSON, 不要其它文字: {"transcript":"...","reply":"..."}
+""".trim()
 
         /** 从模型输出里抠出 JSON 对象 (容忍代码围栏和前后杂质)。 */
         fun extractJsonObject(text: String): String {
