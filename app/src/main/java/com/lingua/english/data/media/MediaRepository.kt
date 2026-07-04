@@ -82,7 +82,7 @@ class MediaRepository(
             captions.fetchFromBaseUrl(videoId, raw.title.ifBlank { videoId }, raw.baseUrl)
         }
         val id = UUID.randomUUID().toString()
-        saveTranscript(id, result.lines)
+        withContext(Dispatchers.IO) { saveTranscript(id, result.lines) }
         mediaDao.insert(
             MediaItemEntity(
                 id = id,

@@ -160,8 +160,8 @@ class YouTubeCaptionClient {
     }
 
     /** WebView 通道拿到字幕轨地址后, 由这里带登录 cookie 下载 (页内 fetch 在部分代理下会被掐)。 */
-    fun fetchFromBaseUrl(videoId: String, title: String, baseUrl: String): CaptionResult =
-        parseJson3(videoId, title, get("$baseUrl&fmt=json3"))
+    suspend fun fetchFromBaseUrl(videoId: String, title: String, baseUrl: String): CaptionResult =
+        withContext(Dispatchers.IO) { parseJson3(videoId, title, get("$baseUrl&fmt=json3")) }
 
     private fun get(url: String): String {
         val builder = Request.Builder()

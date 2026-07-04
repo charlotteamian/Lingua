@@ -46,7 +46,7 @@ class MediaLibraryViewModel(private val mediaRepo: MediaRepository) : ViewModel(
                     onDone(id)
                 }
                 .onFailure { e ->
-                    _importState.value = MediaImportState(error = e.message ?: "导入失败, 再试一次")
+                    _importState.value = MediaImportState(error = e.message ?: "导入失败 (${e.javaClass.simpleName})")
                 }
         }
     }
@@ -56,7 +56,7 @@ class MediaLibraryViewModel(private val mediaRepo: MediaRepository) : ViewModel(
             runCatching { mediaRepo.importAudio(uri, displayName) }
                 .onSuccess(onDone)
                 .onFailure { e ->
-                    _importState.value = MediaImportState(error = e.message ?: "导入失败")
+                    _importState.value = MediaImportState(error = e.message ?: "导入失败 (${e.javaClass.simpleName})")
                 }
         }
     }
