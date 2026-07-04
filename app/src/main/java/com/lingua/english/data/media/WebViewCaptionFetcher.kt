@@ -48,6 +48,11 @@ class WebViewCaptionFetcher(private val context: Context) {
                 }
 
                 webView.settings.javaScriptEnabled = true
+                // 桌面 UA: 避免被重定向到 m.youtube.com (页面结构不同, 播放器数据出得晚)
+                webView.settings.userAgentString =
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                webView.settings.useWideViewPort = true
                 webView.addJavascriptInterface(object {
                     @JavascriptInterface
                     fun onResult(payload: String) = finish {
@@ -69,7 +74,7 @@ class WebViewCaptionFetcher(private val context: Context) {
 
                 webView.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String) {
-                        view.evaluateJavascript(EXTRACT_JS, null)
+                        view.evaluateJavascript(EXTRACT_JS.replace("%VID%", videoId), null)
                     }
                 }
                 cont.invokeOnCancellation {
@@ -81,32 +86,73 @@ class WebViewCaptionFetcher(private val context: Context) {
     }
 
     companion object {
-        /** 页内脚本: 等 playerResponse → 选英文轨 (人工优先) → 页内 fetch json3 → 回传。 */
+        /**
+         * 页内脚本, 两条路: ① 页面自带的 ytInitialPlayerResponse;
+         * ② 等不到就用页面自己的 ytcfg 密钥+上下文调站内 player API
+         * (等于网站自己发请求, 带全套 botguard/cookie)。报错附 host/标题便于远程诊断。
+         */
         private val EXTRACT_JS = """
             (function(){
+              var VIDEO = '%VID%';
               var tries = 0;
-              function grab(){
-                tries++;
-                var pr = window.ytInitialPlayerResponse;
-                if ((!pr || !pr.videoDetails) && tries < 60) { setTimeout(grab, 300); return; }
-                if (!pr || !pr.videoDetails) { CapBridge.onError('页面没加载出播放器数据 (网络或风控问题)'); return; }
-                var title = (pr.videoDetails && pr.videoDetails.title) || '';
-                var r = pr.captions && pr.captions.playerCaptionsTracklistRenderer;
-                var tracks = r && r.captionTracks;
-                if (!tracks || !tracks.length) { CapBridge.onError('这个视频没有字幕轨'); return; }
+              var apiTried = false;
+              function fail(msg){
+                try { CapBridge.onError(msg + ' [' + location.host + ' · ' + (document.title||'').slice(0,40) + ']'); } catch(e) {}
+              }
+              function cfgGet(name){
+                try { return (window.ytcfg && ytcfg.get) ? ytcfg.get(name) : null; } catch(e) { return null; }
+              }
+              function pickAndFetch(tracks, title){
                 var en = [];
                 for (var i = 0; i < tracks.length; i++) {
-                  var lc = tracks[i].languageCode || '';
-                  if (lc.indexOf('en') === 0) en.push(tracks[i]);
+                  if (((tracks[i].languageCode)||'').indexOf('en') === 0) en.push(tracks[i]);
                 }
                 var pick = null;
                 for (var j = 0; j < en.length; j++) { if (en[j].kind !== 'asr') { pick = en[j]; break; } }
                 if (!pick && en.length) pick = en[0];
-                if (!pick) { CapBridge.onError('没有英文字幕 (其它语言的没法用来学英文)'); return; }
+                if (!pick) { fail('没有英文字幕'); return; }
                 fetch(pick.baseUrl + '&fmt=json3', {credentials: 'include'})
-                  .then(function(resp){ return resp.text(); })
-                  .then(function(text){ CapBridge.onResult(JSON.stringify({title: title, captions: text})); })
-                  .catch(function(e){ CapBridge.onError('字幕下载失败: ' + e); });
+                  .then(function(r){ return r.text(); })
+                  .then(function(t){ CapBridge.onResult(JSON.stringify({title: title || document.title || '', captions: t})); })
+                  .catch(function(e){ fail('字幕下载失败: ' + e); });
+              }
+              function viaSiteApi(){
+                var key = cfgGet('INNERTUBE_API_KEY');
+                var ctx = cfgGet('INNERTUBE_CONTEXT');
+                if (!key || !ctx) return false;
+                apiTried = true;
+                fetch('/youtubei/v1/player?key=' + key, {
+                  method: 'POST', credentials: 'include',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({context: ctx, videoId: VIDEO})
+                }).then(function(r){ return r.json(); }).then(function(pr){
+                  var rr = pr.captions && pr.captions.playerCaptionsTracklistRenderer;
+                  if (rr && rr.captionTracks && rr.captionTracks.length) {
+                    pickAndFetch(rr.captionTracks, pr.videoDetails && pr.videoDetails.title);
+                  } else {
+                    var st = pr.playabilityStatus && pr.playabilityStatus.status;
+                    fail('站内API没给字幕 (status=' + st + ')');
+                  }
+                }).catch(function(e){ fail('站内API失败: ' + e); });
+                return true;
+              }
+              function grab(){
+                tries++;
+                var pr = window.ytInitialPlayerResponse;
+                var rr = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer;
+                if (rr && rr.captionTracks && rr.captionTracks.length) {
+                  pickAndFetch(rr.captionTracks, pr.videoDetails && pr.videoDetails.title);
+                  return;
+                }
+                if (pr && pr.videoDetails && tries > 3 && !(rr && rr.captionTracks)) {
+                  // 播放器数据在了但没字幕轨 → 用站内 API 再确认一次
+                  if (!apiTried && viaSiteApi()) return;
+                  fail('这个视频没有字幕轨');
+                  return;
+                }
+                if (tries > 12 && !apiTried && viaSiteApi()) return;
+                if (tries < 100) { setTimeout(grab, 300); return; }
+                fail('页面没加载出播放器数据');
               }
               grab();
             })();
