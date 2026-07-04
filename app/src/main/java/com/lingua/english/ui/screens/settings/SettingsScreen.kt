@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.ai.AiApiPresets
 import com.lingua.english.data.ai.Prompts
 import com.lingua.english.data.practice.PronunciationCoach
+import com.lingua.english.data.tts.GeminiTtsProvider
 import com.lingua.english.data.tts.TtsStatus
 import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
@@ -62,6 +63,7 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     val ttsEngine by vm.ttsEngine.collectAsStateWithLifecycle()
     val ttsVoice by vm.ttsVoice.collectAsStateWithLifecycle()
     val ttsModel by vm.ttsModel.collectAsStateWithLifecycle()
+    val ttsStyle by vm.ttsStyle.collectAsStateWithLifecycle()
     val autoRead by vm.autoRead.collectAsStateWithLifecycle()
     val hideChatText by vm.hideChatText.collectAsStateWithLifecycle()
     val ttsStatus by vm.ttsStatus.collectAsStateWithLifecycle()
@@ -77,6 +79,10 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     var modelInput by remember(model) { mutableStateOf(model) }
     var ttsModelInput by remember(ttsModel) { mutableStateOf(ttsModel) }
     var profileInput by remember(profile) { mutableStateOf(profile) }
+    // 空 = 用默认; 展示时预填默认文本, 在此基础上改
+    var ttsStyleInput by remember(ttsStyle) {
+        mutableStateOf(ttsStyle.ifEmpty { GeminiTtsProvider.DEFAULT_STYLE })
+    }
     // 空 = 用默认; 展示时预填默认文本, 学习者在此基础上改
     var pronRulesInput by remember(pronRules) {
         mutableStateOf(pronRules.ifEmpty { PronunciationCoach.DEFAULT_RULES })
@@ -208,6 +214,18 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                         label = { Text("语音模型 (出新版可改)") },
                         singleLine = true,
                     )
+                    OutlinedTextField(
+                        value = ttsStyleInput,
+                        onValueChange = { ttsStyleInput = it; vm.setTtsStyle(it) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp),
+                        label = { Text("发音风格指令 (口音/语速在这里改)") },
+                    )
+                    OutlinedButton(onClick = {
+                        vm.setTtsStyle("")
+                        ttsStyleInput = GeminiTtsProvider.DEFAULT_STYLE
+                    }) { Text("恢复默认 (中性 RP)") }
                 } else {
                     Text(
                         when (val s = ttsStatus) {

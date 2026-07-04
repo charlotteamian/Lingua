@@ -99,7 +99,7 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("对话", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Poppy · 伦敦腔陪练 · 点单词查词",
+                    "Poppy · RP 英音陪练 · 点单词查词",
                     color = LinguaOnSurfaceMuted,
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,

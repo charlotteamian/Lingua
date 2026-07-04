@@ -84,22 +84,47 @@ class GeminiTtsProvider(
             }
             val voice = prefs.ttsVoice.first().trim().ifEmpty { "Kore" }
             val model = prefs.ttsModel.first().trim().ifEmpty { "gemini-2.5-flash-preview-tts" }
-            val cacheKey = "$voice|$model|$spoken"
-            val clip = synchronized(cache) { cache[cacheKey] }
-                ?: runCatching { fetchAudio(key, model, voice, spoken) }
-                    .onFailure { _lastError.value = it.message?.take(160) ?: "未知错误" }
-                    .getOrNull()
-                    ?.also {
-                        synchronized(cache) { cache[cacheKey] = it }
-                        _lastError.value = null
-                    }
-            if (clip == null) {
-                // 云端失败不打断学习流, 退回系统音; 原因记在 lastError 供设置页查看
-                fallback.speak(spoken, flush)
-                return@launch
+            val style = prefs.ttsStyle.first().trim().ifEmpty { DEFAULT_STYLE }
+
+            // 长文本分段合成 + 顺序播放: 整段一次合成耗时可能超过读超时
+            // (语料页退系统音的元凶); 分段后第一段很快出声, 后面边播边取
+            val segments = segment(spoken)
+            for ((index, seg) in segments.withIndex()) {
+                val cacheKey = "$voice|$model|${style.hashCode()}|$seg"
+                val clip = synchronized(cache) { cache[cacheKey] }
+                    ?: runCatching { fetchAudio(key, model, voice, style, seg) }
+                        .onFailure { _lastError.value = it.message?.take(160) ?: "未知错误" }
+                        .getOrNull()
+                        ?.also {
+                            synchronized(cache) { cache[cacheKey] = it }
+                            _lastError.value = null
+                        }
+                if (clip == null) {
+                    // 剩余部分退系统音, 不打断学习流; 原因记在 lastError 供设置页查看
+                    fallback.speak(segments.drop(index).joinToString(" "), index == 0)
+                    return@launch
+                }
+                playPcm(clip)
             }
-            playPcm(clip)
         }
+    }
+
+    /** 按句聚合成 ≤SEGMENT_CHARS 的段。 */
+    private fun segment(text: String): List<String> {
+        if (text.length <= SEGMENT_CHARS) return listOf(text)
+        val sentences = text.split(Regex("(?<=[.!?])\\s+"))
+        val out = mutableListOf<String>()
+        val sb = StringBuilder()
+        for (sentence in sentences) {
+            if (sb.isNotEmpty() && sb.length + sentence.length + 1 > SEGMENT_CHARS) {
+                out.add(sb.toString())
+                sb.clear()
+            }
+            if (sb.isNotEmpty()) sb.append(' ')
+            sb.append(sentence)
+        }
+        if (sb.isNotEmpty()) out.add(sb.toString())
+        return out
     }
 
     override fun stop() {
@@ -120,12 +145,12 @@ class GeminiTtsProvider(
 
     // ─── 请求 ────────────────────────────────────────────────
 
-    private fun fetchAudio(key: String, model: String, voice: String, text: String): AudioClip {
+    private fun fetchAudio(key: String, model: String, voice: String, style: String, text: String): AudioClip {
         val body = buildJsonObject {
             putJsonArray("contents") {
                 addJsonObject {
                     putJsonArray("parts") {
-                        addJsonObject { put("text", "$STYLE_PREFIX$text") }
+                        addJsonObject { put("text", "$style\n$text") }
                     }
                 }
             }
@@ -223,10 +248,15 @@ class GeminiTtsProvider(
     companion object {
         private const val SAMPLE_RATE = 24_000
         private const val MAX_CHARS = 1_500
+        private const val SEGMENT_CHARS = 220
 
-        /** 口音/风格指令, TTS 模型只照做不朗读。注意别写 relaxed/slow 之类的词, 模型真会放慢。 */
-        private const val STYLE_PREFIX =
-            "Read the following aloud in a natural British RP (Received Pronunciation) accent, " +
-                "with lively intonation, at the brisk, natural pace of everyday conversation: "
+        /**
+         * 默认口音/风格指令 (中性 RP, 无地域色彩), 设置页可改。
+         * 注意别写 relaxed/slow 之类的词, 模型真会放慢; London 之类的地名会往伦敦腔带。
+         */
+        const val DEFAULT_STYLE =
+            "Read the following aloud in neutral, standard Received Pronunciation (RP, BBC English) — " +
+                "a clear British accent with no regional colouring — with lively intonation, " +
+                "at the natural pace of everyday conversation:"
     }
 }

@@ -24,7 +24,7 @@ object Prompts {
             ?.let { "About the learner (use this to make conversation personally relevant): $it" }
             .orEmpty()
         return """
-You are Poppy, a warm and witty English conversation partner from London. You speak Received Pronunciation (RP) British English.
+You are Poppy, a warm and witty English conversation partner. You speak standard Received Pronunciation (RP) British English — neutral, BBC-style, with no regional accent (not Cockney, not Estuary).
 
 Rules:
 1. ALWAYS reply in British English: British spelling (colour, realise), British vocabulary (flat, lift, queue, holiday), British idioms. Never American variants.
