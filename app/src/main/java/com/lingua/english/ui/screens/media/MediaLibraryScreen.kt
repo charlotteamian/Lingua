@@ -54,6 +54,7 @@ fun MediaLibraryScreen(
     sharedUrl: String?,
     onConsumeSharedUrl: () -> Unit,
     onOpen: (String) -> Unit,
+    onLoginYouTube: () -> Unit,
     onBack: () -> Unit,
 ) {
     val items by vm.items.collectAsStateWithLifecycle()
@@ -138,6 +139,16 @@ fun MediaLibraryScreen(
                 ) { Text("＋ 本地音频 / 播客文件") }
                 importState.error?.let { error ->
                     Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    if ("LOGIN_REQUIRED" in error || "风控" in error || "登录" in error) {
+                        Text(
+                            "这个网络出口被 YouTube 要求登录验证。在 app 里登录一次 YouTube 即可解决 (账号密码只经过 Google 页面):",
+                            color = LinguaOnSurfaceMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        OutlinedButton(onClick = onLoginYouTube, modifier = Modifier.fillMaxWidth()) {
+                            Text("登录 YouTube 后重试")
+                        }
+                    }
                 }
             }
         }

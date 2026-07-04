@@ -48,6 +48,7 @@ import com.lingua.english.ui.screens.media.MediaLibraryScreen
 import com.lingua.english.ui.screens.media.MediaLibraryViewModel
 import com.lingua.english.ui.screens.media.MediaPlayerScreen
 import com.lingua.english.ui.screens.media.MediaPlayerViewModel
+import com.lingua.english.ui.screens.media.YouTubeLoginScreen
 import com.lingua.english.ui.screens.practice.PronunciationScreen
 import com.lingua.english.ui.screens.practice.PronunciationViewModel
 import com.lingua.english.ui.screens.review.LibraryScreen
@@ -204,8 +205,12 @@ private fun LinguaApp(container: AppContainer) {
                         sharedUrl = sharedUrl,
                         onConsumeSharedUrl = { container.pendingSharedUrl.value = null },
                         onOpen = { navController.navigate(Routes.mediaPlayer(it)) },
+                        onLoginYouTube = { navController.navigate(Routes.YT_LOGIN) },
                         onBack = { navController.popBackStack() },
                     )
+                }
+                composable(Routes.YT_LOGIN) {
+                    YouTubeLoginScreen(onBack = { navController.popBackStack() })
                 }
                 composable(Routes.MEDIA_PLAYER) { entry ->
                     val mediaId = entry.arguments?.getString("mediaId").orEmpty()

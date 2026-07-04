@@ -35,6 +35,7 @@ object Routes {
     const val LIBRARY = "library"
     const val MEDIA = "media"
     const val MEDIA_PLAYER = "media_player/{mediaId}"
+    const val YT_LOGIN = "yt_login"
 
     fun materialDetail(id: String) = "material/$id"
     fun practice(id: String) = "practice/$id"

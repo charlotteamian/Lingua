@@ -48,11 +48,15 @@ class WebViewCaptionFetcher(private val context: Context) {
                 }
 
                 webView.settings.javaScriptEnabled = true
+                webView.settings.domStorageEnabled = true
                 // 桌面 UA: 避免被重定向到 m.youtube.com (页面结构不同, 播放器数据出得晚)
                 webView.settings.userAgentString =
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
                         "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
                 webView.settings.useWideViewPort = true
+                runCatching {
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+                }
                 webView.addJavascriptInterface(object {
                     @JavascriptInterface
                     fun onResult(payload: String) = finish {
