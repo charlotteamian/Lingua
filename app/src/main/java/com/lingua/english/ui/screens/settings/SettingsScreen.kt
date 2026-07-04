@@ -64,6 +64,7 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     val autoRead by vm.autoRead.collectAsStateWithLifecycle()
     val hideChatText by vm.hideChatText.collectAsStateWithLifecycle()
     val ttsStatus by vm.ttsStatus.collectAsStateWithLifecycle()
+    val cloudTtsError by vm.cloudTtsError.collectAsStateWithLifecycle()
     val profile by vm.profile.collectAsStateWithLifecycle()
     val level by vm.level.collectAsStateWithLifecycle()
     val dictWords by vm.dictWords.collectAsStateWithLifecycle()
@@ -177,6 +178,13 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                         color = LinguaOnSurfaceMuted,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    cloudTtsError?.let { err ->
+                        Text(
+                            "上次云端合成失败: $err (那次已退回系统音)",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         GEMINI_VOICES.forEach { (id, label) ->
                             FilterChip(

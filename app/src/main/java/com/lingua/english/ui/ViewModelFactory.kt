@@ -34,7 +34,7 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(
                 container.prefs, container.chatApiClient, container.chatRepository,
-                container.dictRepository, container.tts,
+                container.dictRepository, container.tts, container.geminiTts.lastError,
             ) as T
 
         else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")

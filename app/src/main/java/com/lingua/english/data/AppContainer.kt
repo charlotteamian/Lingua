@@ -37,7 +37,9 @@ class AppContainer(context: Context) {
     }
 
     private val systemTts: TtsProvider by lazy { SystemTtsProvider(appContext) }
-    private val geminiTts: TtsProvider by lazy { GeminiTtsProvider(prefs, appScope, systemTts) }
+
+    /** 保留具体类型: 设置页要读 lastError 展示云端合成失败原因。 */
+    val geminiTts: GeminiTtsProvider by lazy { GeminiTtsProvider(prefs, appScope, systemTts) }
 
     /** 全 app 唯一发音入口, 按设置在系统/Gemini 云端之间路由。 */
     val tts: TtsProvider by lazy { RoutingTtsProvider(appScope, prefs, systemTts, geminiTts) }

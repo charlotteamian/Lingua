@@ -48,6 +48,10 @@ class GeminiTtsProvider(
     )
     override val status: StateFlow<TtsStatus> = _status
 
+    /** 最近一次云端合成失败的原因 (429 限额/400 等), 设置页展示, 成功后清空。 */
+    private val _lastError = MutableStateFlow<String?>(null)
+    val lastError: StateFlow<String?> = _lastError
+
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -61,9 +65,11 @@ class GeminiTtsProvider(
     @Volatile
     private var track: AudioTrack? = null
 
-    /** text+voice → PCM, 简单 LRU (访问序) 控制内存。 */
-    private val cache = object : LinkedHashMap<String, ByteArray>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?) = size > 24
+    private class AudioClip(val pcm: ByteArray, val sampleRate: Int)
+
+    /** text+voice → 音频, 简单 LRU (访问序) 控制内存。 */
+    private val cache = object : LinkedHashMap<String, AudioClip>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AudioClip>?) = size > 24
     }
 
     override fun speak(text: String, flush: Boolean) {
@@ -79,16 +85,20 @@ class GeminiTtsProvider(
             val voice = prefs.ttsVoice.first().trim().ifEmpty { "Kore" }
             val model = prefs.ttsModel.first().trim().ifEmpty { "gemini-2.5-flash-preview-tts" }
             val cacheKey = "$voice|$model|$spoken"
-            val pcm = synchronized(cache) { cache[cacheKey] }
-                ?: runCatching { fetchAudio(key, model, voice, spoken) }.getOrNull()?.also {
-                    synchronized(cache) { cache[cacheKey] = it }
-                }
-            if (pcm == null) {
-                // 云端失败不打断学习流, 静默退回系统音
+            val clip = synchronized(cache) { cache[cacheKey] }
+                ?: runCatching { fetchAudio(key, model, voice, spoken) }
+                    .onFailure { _lastError.value = it.message?.take(160) ?: "未知错误" }
+                    .getOrNull()
+                    ?.also {
+                        synchronized(cache) { cache[cacheKey] = it }
+                        _lastError.value = null
+                    }
+            if (clip == null) {
+                // 云端失败不打断学习流, 退回系统音; 原因记在 lastError 供设置页查看
                 fallback.speak(spoken, flush)
                 return@launch
             }
-            playPcm(pcm)
+            playPcm(clip)
         }
     }
 
@@ -110,7 +120,7 @@ class GeminiTtsProvider(
 
     // ─── 请求 ────────────────────────────────────────────────
 
-    private fun fetchAudio(key: String, model: String, voice: String, text: String): ByteArray {
+    private fun fetchAudio(key: String, model: String, voice: String, text: String): AudioClip {
         val body = buildJsonObject {
             putJsonArray("contents") {
                 addJsonObject {
@@ -134,23 +144,40 @@ class GeminiTtsProvider(
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
         client.newCall(request).execute().use { resp ->
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) error("Gemini TTS HTTP ${resp.code}")
-            val root = json.parseToJsonElement(text).jsonObject
-            val data = root["candidates"]!!.jsonArray[0]
+            val bodyText = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                val message = runCatching {
+                    json.parseToJsonElement(bodyText).jsonObject["error"]
+                        ?.jsonObject?.get("message")?.jsonPrimitive?.content
+                }.getOrNull()
+                error("HTTP ${resp.code}${message?.let { ": ${it.take(120)}" }.orEmpty()}")
+            }
+            val root = json.parseToJsonElement(bodyText).jsonObject
+            // 长文本的音频可能分多个 inlineData part 返回, 全部拼起来
+            val inlineParts = root["candidates"]!!.jsonArray[0]
                 .jsonObject["content"]!!.jsonObject["parts"]!!.jsonArray
-                .map { it.jsonObject }
-                .firstNotNullOf { it["inlineData"]?.jsonObject?.get("data")?.jsonPrimitive?.content }
-            return Base64.decode(data, Base64.DEFAULT)
+                .mapNotNull { it.jsonObject["inlineData"]?.jsonObject }
+            val chunks = inlineParts.mapNotNull { it["data"]?.jsonPrimitive?.content }
+                .map { Base64.decode(it, Base64.DEFAULT) }
+            if (chunks.isEmpty()) error("模型没有返回音频 (文本可能过长被截断)")
+            val pcm = if (chunks.size == 1) chunks[0] else ByteArray(chunks.sumOf { it.size }).also { out ->
+                var pos = 0
+                chunks.forEach { it.copyInto(out, pos); pos += it.size }
+            }
+            // 采样率以 mimeType 里声明的为准 (audio/L16;codec=pcm;rate=24000)
+            val mime = inlineParts.firstOrNull()?.get("mimeType")?.jsonPrimitive?.content.orEmpty()
+            val sampleRate = Regex("rate=(\\d+)").find(mime)?.groupValues?.get(1)?.toIntOrNull() ?: SAMPLE_RATE
+            return AudioClip(pcm, sampleRate)
         }
     }
 
     // ─── 播放 ────────────────────────────────────────────────
 
-    private suspend fun playPcm(pcm: ByteArray) {
+    private suspend fun playPcm(clip: AudioClip) {
         releaseTrack()
+        val pcm = clip.pcm
         val minBuf = AudioTrack.getMinBufferSize(
-            SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+            clip.sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
         )
         val newTrack = AudioTrack(
             AudioAttributes.Builder()
@@ -158,7 +185,7 @@ class GeminiTtsProvider(
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build(),
             AudioFormat.Builder()
-                .setSampleRate(SAMPLE_RATE)
+                .setSampleRate(clip.sampleRate)
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                 .build(),
@@ -197,9 +224,9 @@ class GeminiTtsProvider(
         private const val SAMPLE_RATE = 24_000
         private const val MAX_CHARS = 1_500
 
-        /** 口音/风格指令, TTS 模型只照做不朗读。 */
+        /** 口音/风格指令, TTS 模型只照做不朗读。注意别写 relaxed/slow 之类的词, 模型真会放慢。 */
         private const val STYLE_PREFIX =
-            "Read the following aloud in a natural, warm British RP (Received Pronunciation) accent, " +
-                "at a relaxed conversational pace, like a friendly Londoner chatting: "
+            "Read the following aloud in a natural British RP (Received Pronunciation) accent, " +
+                "with lively intonation, at the brisk, natural pace of everyday conversation: "
     }
 }

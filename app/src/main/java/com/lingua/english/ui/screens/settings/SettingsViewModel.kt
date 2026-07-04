@@ -24,6 +24,7 @@ class SettingsViewModel(
     private val chatRepo: ChatRepository,
     private val dict: DictRepository,
     val tts: TtsProvider,
+    val cloudTtsError: StateFlow<String?>,
 ) : ViewModel() {
 
     private fun <T> flowOf(source: kotlinx.coroutines.flow.Flow<T>, default: T): StateFlow<T> =

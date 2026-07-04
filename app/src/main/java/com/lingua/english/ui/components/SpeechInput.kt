@@ -2,6 +2,7 @@ package com.lingua.english.ui.components
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
@@ -55,6 +56,26 @@ fun MicButton(
     val state by controller.state.collectAsStateWithLifecycle()
     val listening = state is SpeechInputState.Listening
 
+    // 兜底: 静默识别连续失败后改用系统听写弹窗 (识别器 app 自己的界面, 兼容性最好)
+    val dialogLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { controller.onFinal(it) }
+    }
+
+    fun beginListening() {
+        onStartDictation()
+        if (controller.shouldUseDialog) {
+            runCatching { dialogLauncher.launch(SpeechInputController.dialogIntent(languageTag)) }
+                .onFailure { controller.reportExternalError("设备上没有可用的语音输入界面") }
+        } else {
+            controller.toggle(languageTag)
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -62,8 +83,7 @@ fun MicButton(
             // 刚授权完麦克风可能还被权限弹窗占着, 立刻启动会报 ERROR_CLIENT, 缓一拍
             scope.launch {
                 delay(400)
-                onStartDictation()
-                controller.toggle(languageTag)
+                beginListening()
             }
         }
     }
@@ -77,8 +97,7 @@ fun MicButton(
             context, Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
         if (granted) {
-            onStartDictation()
-            controller.toggle(languageTag)
+            beginListening()
         } else {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }

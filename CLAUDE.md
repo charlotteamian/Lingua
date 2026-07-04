@@ -38,7 +38,11 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **语音识别 code 5 (ERROR_CLIENT) 修复**: 每次 start 前销毁重建 SpeechRecognizer 实例 (部分厂商引擎出错一次后旧实例卡死), onError 也销毁; 授权回调后延迟 400ms 再启动 (权限弹窗还占着麦克风时立刻启动就是 code 5 的典型来源)。
   - **自动朗读 + 通话模式**: 设置页新增「对话」卡两个开关——`autoReadReplies` (回复到达即朗读, ChatViewModel.send onSuccess 里读) / `hideChatText` (Poppy 气泡只显示「语音回复 · 点按显示文字」+ 重听按钮, 点文字才展开; **仅自动朗读开着时生效**, ChatViewModel 里 combine 两个 pref)。
   - **界面整理**: 今日页任务行/快捷入口全部 maxLines=1 + ellipsis + 计数 softWrap=false (不再折行错乱), 任务文案缩短 (在 DailyPlan.kt); 复习页词块行卡片化 (英文 titleMedium 一行、中文释义 muted 一行、到期信息小字, 不再挤成一团); 对话页副标题单行、空状态进 LinguaCard、输入框占位语缩短。
-- ⚠️ **待真机验证**: Gemini 语音 (音质/口音/延迟/扣费)、识别 code 5 是否根除、通话模式体验; 其余功能——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
+- ✅ **2026-07-04 二轮真机反馈 (Gemini 语音成功后三连修)**:
+  - **云端语音失败可诊断**: `GeminiTtsProvider.lastError` (StateFlow) 记录最近一次合成失败原因 (429 限额/400 等, 从错误体抠 message), 成功即清空; 设置页 Gemini 引擎下红字展示「上次云端合成失败: …」。charlotte 报告语料页退系统音而对话页正常——最大嫌疑是**免费档 TTS 每日限额小, 聊天自动朗读先烧完额度**, 之前失败是静默的无从确认, 现在能看到了。同时修: 长文本音频分多个 inlineData part 时全部拼接 (之前只取第一段)、采样率从 mimeType 的 `rate=` 解析 (之前写死 24k, 若模型换采样率会变速变调)。AppContainer 的 `geminiTts` 改为公开具体类型供设置页读 lastError。
+  - **语速慢根因**: STYLE_PREFIX 里写了 "at a relaxed conversational pace"——TTS 模型真会照做放慢。改成 "lively intonation, brisk natural pace"。**经验: 给 TTS 的风格词会被忠实执行, relaxed/slow/calm 这类词慎用。**
+  - **麦克风连续报错兜底**: `SpeechInputController.consecutiveFailures` 统计 CLIENT/BUSY 连续失败, ≥2 次后 `shouldUseDialog=true`, MicButton 改 launch `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` 系统听写弹窗 (厂商自带识别 UI, 兼容性最好), 结果回填 `controller.onFinal`; Manifest queries 加 RECOGNIZE_SPEECH 可见性。静默识别成功会清零计数回到无弹窗路径。
+- ⚠️ **待真机验证**: 设置页看云端合成失败原因 (确认语料页退系统音是不是 429 限额)、新语速/语调、麦克风弹窗兜底; 其余功能——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
 
 ## 技术栈
 
