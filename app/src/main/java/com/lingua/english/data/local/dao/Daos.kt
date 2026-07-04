@@ -9,6 +9,7 @@ import com.lingua.english.data.local.entity.ChatMessageEntity
 import com.lingua.english.data.local.entity.ChunkEntity
 import com.lingua.english.data.local.entity.DailyLogEntity
 import com.lingua.english.data.local.entity.MaterialEntity
+import com.lingua.english.data.local.entity.MediaItemEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -75,6 +76,24 @@ interface ChunkDao {
 
     @Query("DELETE FROM chunk WHERE materialId = :materialId")
     suspend fun deleteByMaterial(materialId: String)
+}
+
+@Dao
+interface MediaDao {
+    @Query("SELECT * FROM media_item ORDER BY createdAtEpochMs DESC")
+    fun observeAll(): Flow<List<MediaItemEntity>>
+
+    @Query("SELECT * FROM media_item WHERE id = :id")
+    fun observeById(id: String): Flow<MediaItemEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(item: MediaItemEntity)
+
+    @Query("UPDATE media_item SET transcribed = 1 WHERE id = :id")
+    suspend fun markTranscribed(id: String)
+
+    @Query("DELETE FROM media_item WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
 
 @Dao

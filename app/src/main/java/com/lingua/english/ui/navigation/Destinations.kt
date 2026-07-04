@@ -33,8 +33,11 @@ object Routes {
     const val CHAT_HISTORY = "chat_history"
     const val CHAT_SESSION = "chat_session/{anchorId}"
     const val LIBRARY = "library"
+    const val MEDIA = "media"
+    const val MEDIA_PLAYER = "media_player/{mediaId}"
 
     fun materialDetail(id: String) = "material/$id"
     fun practice(id: String) = "practice/$id"
     fun chatSession(anchorId: String) = "chat_session/$anchorId"
+    fun mediaPlayer(id: String) = "media_player/$id"
 }

@@ -67,6 +67,13 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **RP 纠偏 (charlotte: 要的是无口音 RP 不是伦敦腔)**: tutor 人设去 "from London" 改 neutral BBC-style RP; TTS 风格指令同改 (**经验: 风格里写 London 会被读成伦敦腔, relaxed 会放慢——风格词都会被忠实执行**)。`prefs.ttsStyle` + 设置页「发音风格指令」多行框可自改 (空=默认, 恢复默认按钮), 生效于 Gemini 语音。
   - **语料页退系统音真凶**: 整段语料一次合成, 音频生成时间超过 60s 读超时 → 静默降级 (聊天回复短所以没事)。改**分段合成+顺序播放** (`segment()` 按句聚合 ≤220 字符, 逐段 fetch+play, 段级缓存含 style hash), 第一段很快出声; 某段失败剩余文本退系统音并记 lastError。
   - 验证: assembleDebug 通过。**待真机**: 语料整段播放是否全程 Gemini 音、段间衔接是否自然、风格改成中性 RP 后口音听感。
+- ✅ **2026-07-04 听读模块 (charlotte: YouTube 看视频想查词 + podcast 也要)**:
+  - **架构**: 通用「(音/视频源, 带时间戳字幕)」播放页, 两种来源—— **YouTube** (免费字幕, 0 token) / **本地音频·播客** (Gemini 转写, 花 token 用户确认)。DB v3 加 `media_item` 表 (type/title/source/transcribed); 字幕正文存 `filesDir/transcripts/<id>.json`。
+  - `data/media/YouTubeCaptionClient`: 抓 watch 页 (手机 UA) → 解析 captionTracks → 英文轨 (人工优先, 兜底 asr 自动字幕) → `fmt=json3` 拉全文 → ASR 碎片合并 (~80 字符/条, 停顿>4s 断句)。**非官方接口, YouTube 改版可能失效**; 需手机网络能通 YouTube (charlotte 有 Clash)。
+  - `data/media/MediaRepository`: importYouTube / importAudio (SAF uri + takePersistableUriPermission, 不复制文件) / transcribe (inline ≤18MB ≈ 64kbps 35 分钟, 超限提示裁剪; maxOutputTokens 65536; 提示词要求 `[{"s":秒,"t":"句子"}]`) / 字幕文件读写。
+  - **UI**: 语料页顶部「听读 · 视频/播客」入口卡 → `media` 素材库 (URL 输入+拉字幕 / 本地音频挑选, 列表卡) → `media_player/{id}` 播放页: YouTube 用 WebView + IFrame API (JS `Bridge.postTime` 每 500ms 回报进度, `seekTo()` 定位) / 音频用 MediaPlayer (播放/暂停/±10s); 下半字幕 LazyColumn **同步高亮当前句 + 自动跟随滚动** (选中行时暂停跟随), 点词查词典, 点行出操作: ▶从这句播 / 收藏(进句子复习) / AI 解释 (行内琥珀色显示, 每次几百 token)。
+  - **系统分享接入**: Manifest ACTION_SEND text/plain + launchMode=singleTask; MainActivity 收到分享文本 → `container.pendingSharedUrl` → 自动跳听读页并填进输入框。
+  - 验证: assembleDebug 通过。**待真机**: YouTube 字幕抓取成功率 (代理环境)、WebView 播放器加载、时间同步/定位、本地音频导入+转写、系统分享入口。播客转写上限 18MB 是 inline 限制, 以后要更长的再上 Gemini Files API (2GB)。
 - ✅ **2026-07-04 复习范围加维度 + 收藏库独立页 (charlotte: 参考一般背单词 app)**:
   - 调研确认主流范式 (Anki 牌组/墨墨词库): 复习首页只放今日任务+设置+开始, 词库是独立入口页。
   - `ReviewScope` (DUE 今日到期 / ALL 全部收藏): 范围 chips 在类型/数量之上; ALL = 提前加练未到期的卡, 按到期先后排序取卡。会话快照改**有序 id 列表**, `grade()` 显式移除 (支持未到期卡不依赖 due 流缩短); `sessionQueue` 改从 allChunks 映射。

@@ -60,6 +60,25 @@ data class ChunkEntity(
     }
 }
 
+/**
+ * 听读素材: YouTube 视频 (免费字幕) 或本地音频/播客 (AI 转写)。
+ * 字幕正文存 filesDir/transcripts/<id>.json, 不进表。
+ */
+@Entity(tableName = "media_item")
+data class MediaItemEntity(
+    @PrimaryKey val id: String,
+    val type: String,                 // youtube / audio
+    val title: String,
+    val source: String,               // youtube: videoId; audio: content uri
+    val createdAtEpochMs: Long,
+    val transcribed: Boolean = false, // 字幕/转写是否已就绪
+) {
+    companion object {
+        const val TYPE_YOUTUBE = "youtube"
+        const val TYPE_AUDIO = "audio"
+    }
+}
+
 /** 每日执行计数, 三档任务达成由这里的计数派生。 */
 @Entity(tableName = "daily_log")
 data class DailyLogEntity(

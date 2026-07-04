@@ -10,10 +10,12 @@ import com.lingua.english.data.local.dao.ChatDao
 import com.lingua.english.data.local.dao.ChunkDao
 import com.lingua.english.data.local.dao.DailyLogDao
 import com.lingua.english.data.local.dao.MaterialDao
+import com.lingua.english.data.local.dao.MediaDao
 import com.lingua.english.data.local.entity.ChatMessageEntity
 import com.lingua.english.data.local.entity.ChunkEntity
 import com.lingua.english.data.local.entity.DailyLogEntity
 import com.lingua.english.data.local.entity.MaterialEntity
+import com.lingua.english.data.local.entity.MediaItemEntity
 
 @Database(
     entities = [
@@ -21,8 +23,9 @@ import com.lingua.english.data.local.entity.MaterialEntity
         MaterialEntity::class,
         ChunkEntity::class,
         DailyLogEntity::class,
+        MediaItemEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class LinguaDatabase : RoomDatabase() {
@@ -30,6 +33,7 @@ abstract class LinguaDatabase : RoomDatabase() {
     abstract fun materialDao(): MaterialDao
     abstract fun chunkDao(): ChunkDao
     abstract fun dailyLogDao(): DailyLogDao
+    abstract fun mediaDao(): MediaDao
 
     companion object {
         @Volatile
@@ -42,13 +46,31 @@ abstract class LinguaDatabase : RoomDatabase() {
             }
         }
 
+        /** v2→v3: 听读素材表 (YouTube 字幕 / 播客转写)。 */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS media_item (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        type TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        createdAtEpochMs INTEGER NOT NULL,
+                        transcribed INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun get(context: Context): LinguaDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     LinguaDatabase::class.java,
                     "lingua.db",
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { instance = it }
             }
     }

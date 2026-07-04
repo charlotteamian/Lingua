@@ -6,6 +6,8 @@ import com.lingua.english.data.dict.DictDatabaseHelper
 import com.lingua.english.data.dict.DictRepository
 import com.lingua.english.data.dict.OnlineDictClient
 import com.lingua.english.data.local.LinguaDatabase
+import com.lingua.english.data.media.MediaRepository
+import com.lingua.english.data.media.YouTubeCaptionClient
 import com.lingua.english.data.practice.PronunciationCoach
 import com.lingua.english.data.prefs.SettingsPreferences
 import com.lingua.english.data.repository.ChatRepository
@@ -25,7 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 /** 手摇 DI (和 Vita 同风格, 不引 Hilt)。 */
 class AppContainer(context: Context) {
 
-    private val appContext = context.applicationContext
+    val appContext: Context = context.applicationContext
 
     /** app 级作用域: 引擎路由、云端语音等跟随进程生命周期的工作。 */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -49,6 +51,14 @@ class AppContainer(context: Context) {
 
     /** 跟读教练 (录音 + Gemini 音频点评)。 */
     val pronunciationCoach: PronunciationCoach by lazy { PronunciationCoach(appContext, prefs) }
+
+    /** 听读素材 (YouTube 字幕 / 播客转写)。 */
+    val mediaRepository: MediaRepository by lazy {
+        MediaRepository(appContext, database.mediaDao(), prefs, YouTubeCaptionClient())
+    }
+
+    /** 系统分享进来的链接 (YouTube 等), 听读页消费后置空。 */
+    val pendingSharedUrl = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     val chatRepository: ChatRepository by lazy {
         ChatRepository(

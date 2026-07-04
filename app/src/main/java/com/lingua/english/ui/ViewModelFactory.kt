@@ -7,6 +7,8 @@ import com.lingua.english.ui.screens.chat.ChatViewModel
 import com.lingua.english.ui.screens.corpus.ComposeEntryViewModel
 import com.lingua.english.ui.screens.corpus.CorpusViewModel
 import com.lingua.english.ui.screens.corpus.MaterialDetailViewModel
+import com.lingua.english.ui.screens.media.MediaLibraryViewModel
+import com.lingua.english.ui.screens.media.MediaPlayerViewModel
 import com.lingua.english.ui.screens.practice.PronunciationViewModel
 import com.lingua.english.ui.screens.review.ReviewViewModel
 import com.lingua.english.ui.screens.settings.SettingsViewModel
@@ -34,6 +36,9 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
 
         modelClass.isAssignableFrom(ReviewViewModel::class.java) ->
             ReviewViewModel(container.reviewRepository, container.tts, container.pronunciationCoach) as T
+
+        modelClass.isAssignableFrom(MediaLibraryViewModel::class.java) ->
+            MediaLibraryViewModel(container.mediaRepository) as T
 
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(
@@ -63,6 +68,17 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
                     PronunciationViewModel(
                         container.materialRepository, container.pronunciationCoach, container.tts, materialId,
+                    ) as T
+            }
+
+        /** 参数化工厂: 听读播放页。 */
+        fun mediaPlayer(container: AppContainer, mediaId: String): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    MediaPlayerViewModel(
+                        container.appContext, container.mediaRepository, container.reviewRepository,
+                        container.chatApiClient, mediaId,
                     ) as T
             }
     }

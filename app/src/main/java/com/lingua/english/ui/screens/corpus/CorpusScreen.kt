@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +29,7 @@ fun CorpusScreen(
     vm: CorpusViewModel,
     onOpenMaterial: (String) -> Unit,
     onCompose: () -> Unit,
+    onOpenMedia: () -> Unit,
 ) {
     val materials by vm.materials.collectAsStateWithLifecycle()
 
@@ -45,6 +49,27 @@ fun CorpusScreen(
                     )
                 }
                 FilledTonalButton(onClick = onCompose) { Text("＋ 记一条") }
+            }
+        }
+
+        item {
+            LinguaCard(modifier = Modifier.clickable(onClick = onOpenMedia)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("听读 · 视频/播客", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "YouTube 免费字幕 · 播客 AI 转写 · 边听边查",
+                            color = LinguaOnSurfaceMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                        )
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
 

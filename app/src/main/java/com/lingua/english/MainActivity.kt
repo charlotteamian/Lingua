@@ -1,5 +1,6 @@
 package com.lingua.english
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,6 +44,10 @@ import com.lingua.english.ui.screens.corpus.CorpusScreen
 import com.lingua.english.ui.screens.corpus.CorpusViewModel
 import com.lingua.english.ui.screens.corpus.MaterialDetailScreen
 import com.lingua.english.ui.screens.corpus.MaterialDetailViewModel
+import com.lingua.english.ui.screens.media.MediaLibraryScreen
+import com.lingua.english.ui.screens.media.MediaLibraryViewModel
+import com.lingua.english.ui.screens.media.MediaPlayerScreen
+import com.lingua.english.ui.screens.media.MediaPlayerViewModel
 import com.lingua.english.ui.screens.practice.PronunciationScreen
 import com.lingua.english.ui.screens.practice.PronunciationViewModel
 import com.lingua.english.ui.screens.review.LibraryScreen
@@ -56,13 +61,30 @@ import com.lingua.english.ui.theme.LinguaTheme
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var container: com.lingua.english.data.AppContainer
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val container = (application as LinguaApplication).container
+        container = (application as LinguaApplication).container
+        handleShareIntent(intent)
         setContent {
             LinguaTheme {
                 LinguaApp(container)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShareIntent(intent)
+    }
+
+    /** 系统分享 (YouTube「分享 → Lingua」等) 进来的文本, 交给听读页消费。 */
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                container.pendingSharedUrl.value = it
             }
         }
     }
@@ -82,6 +104,14 @@ private fun LinguaApp(container: AppContainer) {
     // TTS 语速跟随偏好
     val ttsRate by container.prefs.ttsRate.collectAsStateWithLifecycle(initialValue = 0.9f)
     LaunchedEffect(ttsRate) { container.tts.setRate(ttsRate) }
+
+    // 系统分享进来 → 跳听读页
+    val sharedUrl by container.pendingSharedUrl.collectAsStateWithLifecycle()
+    LaunchedEffect(sharedUrl) {
+        if (sharedUrl != null) {
+            navController.navigate(Routes.MEDIA) { launchSingleTop = true }
+        }
+    }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -156,6 +186,7 @@ private fun LinguaApp(container: AppContainer) {
                         vm = vm,
                         onOpenMaterial = { navController.navigate(Routes.materialDetail(it)) },
                         onCompose = { navController.navigate(Routes.COMPOSE_ENTRY) },
+                        onOpenMedia = { navController.navigate(Routes.MEDIA) },
                     )
                 }
                 composable(TopDestination.Review.route) {
@@ -165,6 +196,24 @@ private fun LinguaApp(container: AppContainer) {
                 composable(Routes.LIBRARY) {
                     val vm: ReviewViewModel = viewModel(factory = factory)
                     LibraryScreen(vm, onBack = { navController.popBackStack() })
+                }
+                composable(Routes.MEDIA) {
+                    val vm: MediaLibraryViewModel = viewModel(factory = factory)
+                    MediaLibraryScreen(
+                        vm = vm,
+                        sharedUrl = sharedUrl,
+                        onConsumeSharedUrl = { container.pendingSharedUrl.value = null },
+                        onOpen = { navController.navigate(Routes.mediaPlayer(it)) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(Routes.MEDIA_PLAYER) { entry ->
+                    val mediaId = entry.arguments?.getString("mediaId").orEmpty()
+                    val vm: MediaPlayerViewModel = viewModel(
+                        key = "media-$mediaId",
+                        factory = LinguaViewModelFactory.mediaPlayer(container, mediaId),
+                    )
+                    MediaPlayerScreen(vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.SETTINGS) {
                     val vm: SettingsViewModel = viewModel(factory = factory)
