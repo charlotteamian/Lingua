@@ -13,9 +13,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.lingua.english.data.speech.SpeechInputController
 import com.lingua.english.data.speech.SpeechInputState
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
@@ -48,6 +51,7 @@ fun MicButton(
     onStartDictation: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val state by controller.state.collectAsStateWithLifecycle()
     val listening = state is SpeechInputState.Listening
 
@@ -55,8 +59,12 @@ fun MicButton(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            onStartDictation()
-            controller.toggle(languageTag)
+            // 刚授权完麦克风可能还被权限弹窗占着, 立刻启动会报 ERROR_CLIENT, 缓一拍
+            scope.launch {
+                delay(400)
+                onStartDictation()
+                controller.toggle(languageTag)
+            }
         }
     }
 

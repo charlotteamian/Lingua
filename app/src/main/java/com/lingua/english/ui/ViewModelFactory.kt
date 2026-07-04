@@ -20,7 +20,7 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
             TodayViewModel(container.planRepository, container.reviewRepository, container.prefs) as T
 
         modelClass.isAssignableFrom(ChatViewModel::class.java) ->
-            ChatViewModel(container.chatRepository, container.reviewRepository, container.tts) as T
+            ChatViewModel(container.chatRepository, container.reviewRepository, container.tts, container.prefs) as T
 
         modelClass.isAssignableFrom(CorpusViewModel::class.java) ->
             CorpusViewModel(container.materialRepository) as T

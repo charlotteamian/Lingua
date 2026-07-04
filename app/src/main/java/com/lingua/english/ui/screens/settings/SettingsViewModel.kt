@@ -34,6 +34,11 @@ class SettingsViewModel(
     val aiKey = flowOf(prefs.aiApiKey, "")
     val aiModel = flowOf(prefs.aiApiModel, "")
     val ttsRate = flowOf(prefs.ttsRate, 0.9f)
+    val ttsEngine = flowOf(prefs.ttsEngine, "system")
+    val ttsVoice = flowOf(prefs.ttsVoice, "Kore")
+    val ttsModel = flowOf(prefs.ttsModel, "gemini-2.5-flash-preview-tts")
+    val autoRead = flowOf(prefs.autoReadReplies, false)
+    val hideChatText = flowOf(prefs.hideChatText, false)
     val profile = flowOf(prefs.learnerProfile, "")
     val level = flowOf(prefs.learnerLevel, "intermediate")
 
@@ -64,6 +69,12 @@ class SettingsViewModel(
         tts.setRate(rate)
         viewModelScope.launch { prefs.setTtsRate(rate) }
     }
+
+    fun setTtsEngine(engine: String) = viewModelScope.launch { prefs.setTtsEngine(engine) }
+    fun setTtsVoice(voice: String) = viewModelScope.launch { prefs.setTtsVoice(voice) }
+    fun setTtsModel(model: String) = viewModelScope.launch { prefs.setTtsModel(model) }
+    fun setAutoRead(enabled: Boolean) = viewModelScope.launch { prefs.setAutoReadReplies(enabled) }
+    fun setHideChatText(enabled: Boolean) = viewModelScope.launch { prefs.setHideChatText(enabled) }
 
     fun tryVoice() = tts.speak("Right then, shall we get started?")
 

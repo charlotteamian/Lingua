@@ -56,15 +56,15 @@ object DailyPlan {
         return DailyPlanStatus(
             tier = tier,
             minimumTasks = listOf(
-                PlanTask("做一个学习动作 (复习/听/聊/记 任一)", if (anyAction) 1 else 0, 1),
+                PlanTask("任一学习动作", if (anyAction) 1 else 0, 1),
             ),
             normalTasks = listOf(
                 PlanTask("复习 ${MIN_REVIEWS} 张卡", l.reviewsDone, MIN_REVIEWS),
-                PlanTask("聊 ${NORMAL_CHAT_TURNS} 轮 或 记 1 条随手记", maxOf(l.chatTurns * 1, if (l.materialsAdded >= 1) NORMAL_CHAT_TURNS else 0), NORMAL_CHAT_TURNS),
+                PlanTask("聊 ${NORMAL_CHAT_TURNS} 轮 / 记 1 条", maxOf(l.chatTurns * 1, if (l.materialsAdded >= 1) NORMAL_CHAT_TURNS else 0), NORMAL_CHAT_TURNS),
             ),
             goodTasks = listOf(
-                PlanTask("到期卡片清零", if (dueLeft == 0 && anyAction) 1 else 0, 1),
-                PlanTask("完整听 1 条语料", l.listensDone, 1),
+                PlanTask("到期清零", if (dueLeft == 0 && anyAction) 1 else 0, 1),
+                PlanTask("听完 1 条语料", l.listensDone, 1),
             ),
         )
     }

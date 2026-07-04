@@ -4,12 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lingua.english.data.local.entity.ChatMessageEntity
 import com.lingua.english.data.local.entity.ChunkEntity
+import com.lingua.english.data.prefs.SettingsPreferences
 import com.lingua.english.data.repository.ChatRepository
 import com.lingua.english.data.repository.ReviewRepository
 import com.lingua.english.data.tts.TtsProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -23,10 +26,16 @@ class ChatViewModel(
     private val chatRepo: ChatRepository,
     private val reviewRepo: ReviewRepository,
     private val tts: TtsProvider,
+    private val prefs: SettingsPreferences,
 ) : ViewModel() {
 
     val messages: StateFlow<List<ChatMessageEntity>> = chatRepo.messages
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 通话模式: 隐藏 Poppy 回复文字, 点按显示。只在自动朗读开着时生效, 避免「文字藏了又没声音」。 */
+    val hideChatText: StateFlow<Boolean> =
+        combine(prefs.hideChatText, prefs.autoReadReplies) { hide, autoRead -> hide && autoRead }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _sendState = MutableStateFlow(ChatSendState())
     val sendState: StateFlow<ChatSendState> = _sendState
@@ -38,8 +47,11 @@ class ChatViewModel(
         _sendState.value = _sendState.value.copy(sending = true, error = null)
         viewModelScope.launch {
             runCatching { chatRepo.send(trimmed, newTopic) }
-                .onSuccess {
+                .onSuccess { reply ->
                     _sendState.value = ChatSendState()
+                    if (prefs.autoReadReplies.first()) {
+                        tts.speak(stripMarkup(reply))
+                    }
                 }
                 .onFailure { e ->
                     _sendState.value = ChatSendState(error = e.message ?: "发送失败, 重试一次试试")

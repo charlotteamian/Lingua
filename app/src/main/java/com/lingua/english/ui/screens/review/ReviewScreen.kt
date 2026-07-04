@@ -1,5 +1,6 @@
 package com.lingua.english.ui.screens.review
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,9 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -24,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.local.entity.ChunkEntity
@@ -33,6 +38,7 @@ import com.lingua.english.ui.components.LocalWordLookup
 import com.lingua.english.ui.components.TappableText
 import com.lingua.english.ui.theme.LinguaGradients
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
+import com.lingua.english.ui.theme.LinguaSurfaceVariant
 import com.lingua.english.ui.theme.LinguaTertiary
 import java.time.LocalDate
 
@@ -152,11 +158,32 @@ fun ReviewScreen(vm: ReviewViewModel) {
 private fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (String) -> Unit) {
     val today = LocalDate.now().toEpochDay()
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(LinguaSurfaceVariant.copy(alpha = 0.45f))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("${chunk.text} — ${chunk.meaningZh}", style = MaterialTheme.typography.bodyLarge)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                chunk.text,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (chunk.meaningZh.isNotEmpty()) {
+                Text(
+                    chunk.meaningZh,
+                    color = LinguaOnSurfaceMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
                 buildString {
                     append(if (chunk.kind == ChunkEntity.KIND_WORD) "生词" else "词块")
@@ -164,17 +191,18 @@ private fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (S
                     val days = chunk.dueEpochDay - today
                     append(if (days <= 0) "今天到期" else "${days} 天后到期")
                 },
-                color = LinguaOnSurfaceMuted,
+                color = LinguaOnSurfaceMuted.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
             )
         }
-        IconButton(onClick = { onSpeak(chunk.text) }, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = { onSpeak(chunk.text) }, modifier = Modifier.size(36.dp)) {
             Icon(
                 Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "朗读",
-                tint = LinguaOnSurfaceMuted, modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp),
             )
         }
-        IconButton(onClick = { onDelete(chunk.id) }, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = { onDelete(chunk.id) }, modifier = Modifier.size(36.dp)) {
             Icon(
                 Icons.Filled.DeleteOutline, contentDescription = "删除",
                 tint = LinguaOnSurfaceMuted, modifier = Modifier.size(18.dp),

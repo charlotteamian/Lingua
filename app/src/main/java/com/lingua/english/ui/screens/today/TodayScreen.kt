@@ -20,8 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.domain.PlanTask
@@ -118,12 +120,12 @@ fun TodayScreen(
                 )
                 QuickAction(
                     title = "跟 Poppy 聊聊今天",
-                    subtitle = "迭代输出 · 用英文说正在做的事",
+                    subtitle = "迭代输出 · 说正在做的事",
                     onClick = onGoChat,
                 )
                 QuickAction(
                     title = "随手记一条",
-                    subtitle = "把今天的生活变成你的英文语料",
+                    subtitle = "生活变素材 · 中文就行",
                     onClick = onGoCompose,
                 )
             }
@@ -139,6 +141,7 @@ private fun PlanSection(title: String, tasks: List<PlanTask>, achieved: Boolean)
                 title,
                 style = MaterialTheme.typography.labelMedium,
                 color = if (achieved) LinguaTertiary else LinguaOnSurfaceMuted,
+                maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
             if (achieved) {
@@ -150,17 +153,22 @@ private fun PlanSection(title: String, tasks: List<PlanTask>, achieved: Boolean)
             }
         }
         tasks.forEach { task ->
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     task.label,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
                     "${task.progress.coerceAtMost(task.target)}/${task.target}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (task.done) LinguaTertiary else LinguaOnSurfaceMuted,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(start = 12.dp),
                 )
             }
         }
@@ -174,13 +182,20 @@ private fun QuickAction(title: String, subtitle: String, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, color = LinguaOnSurfaceMuted, style = MaterialTheme.typography.bodyMedium)
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                subtitle,
+                color = LinguaOnSurfaceMuted,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Icon(
             Icons.AutoMirrored.Filled.ArrowForward,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 8.dp),
         )
     }
 }

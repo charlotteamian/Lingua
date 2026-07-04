@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +42,14 @@ import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaTertiary
 
+/** Gemini TTS 精选声音 (30 个里挑 4 个, 口音统一由提示词控制成英式)。 */
+private val GEMINI_VOICES = listOf(
+    "Kore" to "Kore·沉稳",
+    "Aoede" to "Aoede·轻快",
+    "Leda" to "Leda·年轻",
+    "Puck" to "Puck·男声",
+)
+
 @Composable
 fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     val preset by vm.aiPreset.collectAsStateWithLifecycle()
@@ -49,6 +58,11 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     val model by vm.aiModel.collectAsStateWithLifecycle()
     val apiTest by vm.apiTest.collectAsStateWithLifecycle()
     val ttsRate by vm.ttsRate.collectAsStateWithLifecycle()
+    val ttsEngine by vm.ttsEngine.collectAsStateWithLifecycle()
+    val ttsVoice by vm.ttsVoice.collectAsStateWithLifecycle()
+    val ttsModel by vm.ttsModel.collectAsStateWithLifecycle()
+    val autoRead by vm.autoRead.collectAsStateWithLifecycle()
+    val hideChatText by vm.hideChatText.collectAsStateWithLifecycle()
     val ttsStatus by vm.ttsStatus.collectAsStateWithLifecycle()
     val profile by vm.profile.collectAsStateWithLifecycle()
     val level by vm.level.collectAsStateWithLifecycle()
@@ -58,6 +72,7 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     var baseUrlInput by remember(baseUrl) { mutableStateOf(baseUrl) }
     var keyInput by remember(key) { mutableStateOf(key) }
     var modelInput by remember(model) { mutableStateOf(model) }
+    var ttsModelInput by remember(ttsModel) { mutableStateOf(ttsModel) }
     var profileInput by remember(profile) { mutableStateOf(profile) }
     var showKey by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -142,18 +157,57 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
         item {
             LinguaCard {
                 Text("英音发音", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    when (val s = ttsStatus) {
-                        is TtsStatus.Initialising -> "语音引擎初始化中…"
-                        is TtsStatus.Unavailable -> "语音不可用: ${s.reason}"
-                        is TtsStatus.Ready ->
-                            if (s.britishVoice) "英音 (en-GB) 已就绪 · 系统 TTS"
-                            else "设备缺英音语音包, 暂用默认英语。建议安装「Google 文字转语音」并下载英式英语语音。"
-                    },
-                    color = if (ttsStatus is TtsStatus.Ready && (ttsStatus as TtsStatus.Ready).britishVoice)
-                        LinguaTertiary else LinguaOnSurfaceMuted,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = ttsEngine == "system",
+                        onClick = { vm.setTtsEngine("system") },
+                        label = { Text("系统 TTS", maxLines = 1) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    FilterChip(
+                        selected = ttsEngine == "gemini",
+                        onClick = { vm.setTtsEngine("gemini") },
+                        label = { Text("Gemini 语音", maxLines = 1) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (ttsEngine == "gemini") {
+                    Text(
+                        "真人感语音, 英式口音。用上面「AI 对话服务」的 Gemini Key 按量计费; 失败自动退回系统音。",
+                        color = LinguaOnSurfaceMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GEMINI_VOICES.forEach { (id, label) ->
+                            FilterChip(
+                                selected = ttsVoice == id,
+                                onClick = { vm.setTtsVoice(id) },
+                                label = { Text(label, maxLines = 1) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = ttsModelInput,
+                        onValueChange = { ttsModelInput = it; vm.setTtsModel(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("语音模型 (出新版可改)") },
+                        singleLine = true,
+                    )
+                } else {
+                    Text(
+                        when (val s = ttsStatus) {
+                            is TtsStatus.Initialising -> "语音引擎初始化中…"
+                            is TtsStatus.Unavailable -> "语音不可用: ${s.reason}"
+                            is TtsStatus.Ready ->
+                                if (s.britishVoice) "英音 (en-GB) 已就绪 · 免费离线, 但机械感明显"
+                                else "设备缺英音语音包, 暂用默认英语。建议安装「Google 文字转语音」并下载英式英语语音。"
+                        },
+                        color = if ((ttsStatus as? TtsStatus.Ready)?.britishVoice == true)
+                            LinguaTertiary else LinguaOnSurfaceMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 Text("语速 ${"%.1f".format(ttsRate)}×", style = MaterialTheme.typography.bodyMedium)
                 Slider(
                     value = ttsRate,
@@ -162,6 +216,38 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                     steps = 6,
                 )
                 OutlinedButton(onClick = vm::tryVoice) { Text("试听") }
+            }
+        }
+
+        item {
+            LinguaCard {
+                Text("对话", style = MaterialTheme.typography.titleMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("自动朗读 Poppy 的回复", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "回复一到就读出来, 接近实时通话",
+                            color = LinguaOnSurfaceMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Switch(checked = autoRead, onCheckedChange = { vm.setAutoRead(it) })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("通话模式: 隐藏回复文字", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "只听声音练听力, 点气泡才显示文字",
+                            color = LinguaOnSurfaceMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Switch(
+                        checked = hideChatText,
+                        onCheckedChange = { vm.setHideChatText(it) },
+                        enabled = autoRead,
+                    )
+                }
             }
         }
 

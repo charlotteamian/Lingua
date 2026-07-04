@@ -41,7 +41,9 @@ class SpeechInputController(private val context: Context) {
             _state.value = SpeechInputState.Error("此设备没有可用的语音识别服务 (通常由 Google app 提供)")
             return
         }
-        val r = recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also {
+        // 每次都新建实例: 不少厂商引擎出错一次后旧实例就卡死 (ERROR_CLIENT/BUSY), 复用会连环出错
+        destroyRecognizer()
+        val r = SpeechRecognizer.createSpeechRecognizer(context).also {
             it.setRecognitionListener(listener)
             recognizer = it
         }
@@ -62,9 +64,13 @@ class SpeechInputController(private val context: Context) {
     }
 
     fun destroy() {
+        destroyRecognizer()
+        _state.value = SpeechInputState.Idle
+    }
+
+    private fun destroyRecognizer() {
         runCatching { recognizer?.destroy() }
         recognizer = null
-        _state.value = SpeechInputState.Idle
     }
 
     private val listener = object : RecognitionListener {
@@ -78,6 +84,8 @@ class SpeechInputController(private val context: Context) {
         }
 
         override fun onError(error: Int) {
+            // 出错即弃用当前实例, 下次 start 重建, 避免卡在坏状态
+            destroyRecognizer()
             _state.value = when (error) {
                 SpeechRecognizer.ERROR_NO_MATCH,
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
@@ -90,8 +98,9 @@ class SpeechInputController(private val context: Context) {
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
                     SpeechInputState.Error("没有麦克风权限")
 
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
-                    SpeechInputState.Error("识别器忙, 稍等再试")
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+                SpeechRecognizer.ERROR_CLIENT,
+                -> SpeechInputState.Error("识别器开小差了, 再点一次麦克风")
 
                 else -> SpeechInputState.Error("语音识别出错 (code $error)")
             }

@@ -33,7 +33,12 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - `data/speech/SpeechInputController.kt`: 系统 `SpeechRecognizer` 封装 (不引第三方 SDK), StateFlow 状态机 Idle/Listening/Error, 错误码转人话; 设备缺识别服务 (无 Google app 的 ROM) 给友好提示不崩。Manifest 加 `RECORD_AUDIO` + `RecognitionService` 包可见性。
   - `ui/components/SpeechInput.kt`: `rememberSpeechInput` (跟组合生命周期销毁) + `MicButton` (内置运行时权限申请) + `appendDictation` (CJK 之间不加空格)。
   - **对话页说英文 (en-GB)**: 麦克风在输入框左侧; **随手记说中文 (zh-CN)**: 麦克风在标题栏右侧。听写实时进输入框 (partial), 从按下时的 `dictationBase` 往后拼, 已手动编辑的部分不被覆盖; **不自动发送**, 说完可改再发。引擎停顿自动结束一段, 继续说再按一次。
-- ⚠️ **待真机验证**: 全部功能没跑过真机——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
+- ✅ **2026-07-04 真机首轮反馈四连修 (charlotte: 语音生硬/页面乱/识别报错/要通话模式)**:
+  - **Gemini 云端语音**: `GeminiTtsProvider` (generateContent + AUDIO 模态, PCM 16bit 24kHz → AudioTrack 播放, 支持变速 PlaybackParams)。英式口音靠 STYLE_PREFIX 提示词控制; 走「AI 对话服务」的 Gemini Key (`prefs.aiApiKey`) 按量计费; **没 Key/请求失败静默退回系统 TTS**; 同句音频进程内 LRU 缓存 (24 条) 防复习重复扣费。`RoutingTtsProvider` 按 `prefs.ttsEngine` (system/gemini) 路由, 全 app 调用方零感知; AppContainer 新增 `appScope`。设置页「英音发音」卡: 引擎双 chip + 4 个精选声音 (Kore/Aoede/Leda/Puck) + 语音模型输入框 (默认 `gemini-2.5-flash-preview-tts`, 出新版直接改)。**注意: 语音模型走的是 v1beta/models/{model}:generateContent 原生端点, 不是 OpenAI 兼容层; 若换非 Gemini 对话服务商, 云端语音会因 Key 不对退回系统音**。
+  - **语音识别 code 5 (ERROR_CLIENT) 修复**: 每次 start 前销毁重建 SpeechRecognizer 实例 (部分厂商引擎出错一次后旧实例卡死), onError 也销毁; 授权回调后延迟 400ms 再启动 (权限弹窗还占着麦克风时立刻启动就是 code 5 的典型来源)。
+  - **自动朗读 + 通话模式**: 设置页新增「对话」卡两个开关——`autoReadReplies` (回复到达即朗读, ChatViewModel.send onSuccess 里读) / `hideChatText` (Poppy 气泡只显示「语音回复 · 点按显示文字」+ 重听按钮, 点文字才展开; **仅自动朗读开着时生效**, ChatViewModel 里 combine 两个 pref)。
+  - **界面整理**: 今日页任务行/快捷入口全部 maxLines=1 + ellipsis + 计数 softWrap=false (不再折行错乱), 任务文案缩短 (在 DailyPlan.kt); 复习页词块行卡片化 (英文 titleMedium 一行、中文释义 muted 一行、到期信息小字, 不再挤成一团); 对话页副标题单行、空状态进 LinguaCard、输入框占位语缩短。
+- ⚠️ **待真机验证**: Gemini 语音 (音质/口音/延迟/扣费)、识别 code 5 是否根除、通话模式体验; 其余功能——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
 
 ## 技术栈
 

@@ -26,18 +26,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.local.entity.ChatMessageEntity
+import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.data.speech.SpeechInputState
 import com.lingua.english.ui.components.LocalWordLookup
 import com.lingua.english.ui.components.MicButton
@@ -53,8 +57,11 @@ import com.lingua.english.ui.theme.LinguaSurfaceVariant
 fun ChatScreen(vm: ChatViewModel) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val sendState by vm.sendState.collectAsStateWithLifecycle()
+    val hideText by vm.hideChatText.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
+    // 通话模式下被点开显示文字的消息 id
+    val revealedIds = remember { mutableStateListOf<String>() }
 
     // 语音输入 (英文): 听写从 dictationBase 起往后拼, 手动编辑过的部分不会被覆盖
     var dictationBase by remember { mutableStateOf("") }
@@ -76,9 +83,11 @@ fun ChatScreen(vm: ChatViewModel) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("对话", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Poppy · 伦敦腔陪练 · 点任何单词查词典",
+                    "Poppy · 伦敦腔陪练 · 点单词查词",
                     color = LinguaOnSurfaceMuted,
                     style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             TextButton(onClick = vm::markNewTopic, enabled = !sendState.pendingNewTopic) {
@@ -96,7 +105,13 @@ fun ChatScreen(vm: ChatViewModel) {
                 item { EmptyChatHint() }
             }
             items(messages, key = { it.id }) { message ->
-                MessageBubble(message, onSpeak = vm::speak, onSaveChunk = vm::saveChunk)
+                MessageBubble(
+                    message = message,
+                    hidden = hideText && message.role == "assistant" && message.id !in revealedIds,
+                    onReveal = { revealedIds.add(message.id) },
+                    onSpeak = vm::speak,
+                    onSaveChunk = vm::saveChunk,
+                )
             }
             if (sendState.sending) {
                 item {
@@ -143,9 +158,9 @@ fun ChatScreen(vm: ChatViewModel) {
                 modifier = Modifier.weight(1f),
                 placeholder = {
                     Text(
-                        if (speechState is SpeechInputState.Listening) "正在听, 开口说英文…"
-                        else "说或写英文, 聊聊你正在做的事…",
+                        if (speechState is SpeechInputState.Listening) "正在听…" else "说或写英文…",
                         color = LinguaOnSurfaceMuted,
+                        maxLines = 1,
                     )
                 },
                 maxLines = 4,
@@ -170,10 +185,10 @@ fun ChatScreen(vm: ChatViewModel) {
 
 @Composable
 private fun EmptyChatHint() {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    LinguaCard {
         Text("和 Poppy 用英文聊你真实的生活", style = MaterialTheme.typography.titleMedium)
         Text(
-            "她只说英式英语, 会顺手纠正你的表达 (✎ 开头), 偶尔递给你一个值得记住的词块 (▸ 开头, 点 ＋ 收进复习)。写错没关系, 写中文也可以, 她会教你怎么用英文说。",
+            "她只说英式英语, 会顺手纠正你的表达 (✎ 开头), 偶尔递一个值得记住的词块 (▸ 开头, 点 ＋ 收进复习)。写错没关系, 写中文也可以, 她会教你怎么用英文说。",
             color = LinguaOnSurfaceMuted,
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -184,6 +199,8 @@ private fun EmptyChatHint() {
 @Composable
 private fun MessageBubble(
     message: ChatMessageEntity,
+    hidden: Boolean,
+    onReveal: () -> Unit,
     onSpeak: (String) -> Unit,
     onSaveChunk: (String, String) -> Unit,
 ) {
@@ -203,18 +220,40 @@ private fun MessageBubble(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (isUser) {
-                TappableText(message.content, onWordTap = lookup)
-            } else {
-                AssistantContent(message.content, lookup, onSaveChunk)
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            when {
+                isUser -> TappableText(message.content, onWordTap = lookup)
+
+                // 通话模式: 只给声音, 点按显示文字
+                hidden -> Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { onSpeak(message.content) }, modifier = Modifier.size(28.dp)) {
                         Icon(
                             Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = "朗读",
-                            tint = LinguaOnSurfaceMuted,
-                            modifier = Modifier.size(16.dp),
+                            contentDescription = "重听",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
                         )
+                    }
+                    Text(
+                        "语音回复 · 点按显示文字",
+                        color = LinguaOnSurfaceMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .clickable(onClick = onReveal)
+                            .padding(vertical = 4.dp, horizontal = 4.dp),
+                    )
+                }
+
+                else -> {
+                    AssistantContent(message.content, lookup, onSaveChunk)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { onSpeak(message.content) }, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = "朗读",
+                                tint = LinguaOnSurfaceMuted,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
                 }
             }
