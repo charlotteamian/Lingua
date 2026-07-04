@@ -79,7 +79,7 @@ class MediaRepository(
                     "字幕拉取失败——直连: ${direct.message?.take(80)}; 网页通道: ${web.message?.take(80)}"
                 )
             }
-            captions.parseJson3(videoId, raw.title.ifBlank { videoId }, raw.captions)
+            captions.fetchFromBaseUrl(videoId, raw.title.ifBlank { videoId }, raw.baseUrl)
         }
         val id = UUID.randomUUID().toString()
         saveTranscript(id, result.lines)

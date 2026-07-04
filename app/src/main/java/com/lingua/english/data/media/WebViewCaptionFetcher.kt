@@ -24,8 +24,9 @@ import kotlinx.serialization.json.Json
  */
 class WebViewCaptionFetcher(private val context: Context) {
 
+    /** WebView 只负责拿到字幕轨地址, 下载由 OkHttp 带 cookie 完成 (页内 fetch 易被代理掐)。 */
     @Serializable
-    data class RawCaptions(val title: String = "", val captions: String = "")
+    data class RawCaptions(val title: String = "", val baseUrl: String = "")
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -63,7 +64,7 @@ class WebViewCaptionFetcher(private val context: Context) {
                         val parsed = runCatching {
                             json.decodeFromString(RawCaptions.serializer(), payload)
                         }.getOrNull()
-                        if (parsed == null || parsed.captions.isBlank()) {
+                        if (parsed == null || parsed.baseUrl.isBlank()) {
                             cont.resumeWithException(AiException("字幕数据解析失败"))
                         } else {
                             cont.resume(parsed)
@@ -115,10 +116,7 @@ class WebViewCaptionFetcher(private val context: Context) {
                 for (var j = 0; j < en.length; j++) { if (en[j].kind !== 'asr') { pick = en[j]; break; } }
                 if (!pick && en.length) pick = en[0];
                 if (!pick) { fail('没有英文字幕'); return; }
-                fetch(pick.baseUrl + '&fmt=json3', {credentials: 'include'})
-                  .then(function(r){ return r.text(); })
-                  .then(function(t){ CapBridge.onResult(JSON.stringify({title: title || document.title || '', captions: t})); })
-                  .catch(function(e){ fail('字幕下载失败: ' + e); });
+                CapBridge.onResult(JSON.stringify({title: title || document.title || '', baseUrl: pick.baseUrl}));
               }
               function viaSiteApi(){
                 var key = cfgGet('INNERTUBE_API_KEY');

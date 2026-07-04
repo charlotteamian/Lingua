@@ -159,15 +159,23 @@ class YouTubeCaptionClient {
         return out
     }
 
+    /** WebView 通道拿到字幕轨地址后, 由这里带登录 cookie 下载 (页内 fetch 在部分代理下会被掐)。 */
+    fun fetchFromBaseUrl(videoId: String, title: String, baseUrl: String): CaptionResult =
+        parseJson3(videoId, title, get("$baseUrl&fmt=json3"))
+
     private fun get(url: String): String {
-        val request = Request.Builder()
+        val builder = Request.Builder()
             .url(url)
             .header(
                 "User-Agent",
-                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             )
             .header("Accept-Language", "en-US,en;q=0.9")
-            .build()
+        // 用户在 app 内登录过 YouTube 的话带上 cookie: 风控 IP 上登录态是放行的关键
+        runCatching {
+            android.webkit.CookieManager.getInstance().getCookie(url)
+        }.getOrNull()?.takeIf { it.isNotBlank() }?.let { builder.header("Cookie", it) }
+        val request = builder.build()
         client.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) error("HTTP ${resp.code}")
             return resp.body?.string().orEmpty()
