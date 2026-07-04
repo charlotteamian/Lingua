@@ -42,7 +42,13 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **云端语音失败可诊断**: `GeminiTtsProvider.lastError` (StateFlow) 记录最近一次合成失败原因 (429 限额/400 等, 从错误体抠 message), 成功即清空; 设置页 Gemini 引擎下红字展示「上次云端合成失败: …」。charlotte 报告语料页退系统音而对话页正常——最大嫌疑是**免费档 TTS 每日限额小, 聊天自动朗读先烧完额度**, 之前失败是静默的无从确认, 现在能看到了。同时修: 长文本音频分多个 inlineData part 时全部拼接 (之前只取第一段)、采样率从 mimeType 的 `rate=` 解析 (之前写死 24k, 若模型换采样率会变速变调)。AppContainer 的 `geminiTts` 改为公开具体类型供设置页读 lastError。
   - **语速慢根因**: STYLE_PREFIX 里写了 "at a relaxed conversational pace"——TTS 模型真会照做放慢。改成 "lively intonation, brisk natural pace"。**经验: 给 TTS 的风格词会被忠实执行, relaxed/slow/calm 这类词慎用。**
   - **麦克风连续报错兜底**: `SpeechInputController.consecutiveFailures` 统计 CLIENT/BUSY 连续失败, ≥2 次后 `shouldUseDialog=true`, MicButton 改 launch `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` 系统听写弹窗 (厂商自带识别 UI, 兼容性最好), 结果回填 `controller.onFinal`; Manifest queries 加 RECOGNIZE_SPEECH 可见性。静默识别成功会清零计数回到无弹窗路径。
-- ⚠️ **待真机验证**: 设置页看云端合成失败原因 (确认语料页退系统音是不是 429 限额)、新语速/语调、麦克风弹窗兜底; 其余功能——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
+- ✅ **2026-07-04 跟读练习 (charlotte: AI 听我朗读并标记发音问题) + 语料页两处显示修复**:
+  - **语料详情显示修**: 语速档 (0.7/0.9/1.0/1.1×) 之前和播放/停止按钮同一行被挤出屏幕 (Row 不换行) 只见 0.7/0.9, 改为独占一行 4 个等宽 chip; 词块列表套用复习页同款卡片样式 (英文/中文/note 分行, 尾部朗读钮)。
+  - **跟读练习** (`practice/{materialId}` 路由, 语料详情「跟读练习」卡进入):
+    - `data/practice/PronunciationCoach.kt`: MediaRecorder 录 AAC-ADTS 16kHz 到 cacheDir → **音频 inlineData 直发 Gemini generateContent** (用对话模型, 默认 gemini-3.5-flash 的原生音频理解) + 带编号单词表提示词 → 返回 JSON `{overall, words:[{i,w,issue,tip}]}` (RP 标准、明确要求不吹毛求疵); 下标消毒 (编号对不上按词文本找回, 找不到丢弃)。**仅支持 Gemini 预设** (要音频输入), 其它服务商抛可读错误。
+    - `PronunciationScreen`: 原文中问题词红色下划线+浅红底, **点问题词 = 听 AI 读该词**, 其余词照常点词查词典; 问题词卡片列出 issue/tip + [听 AI 读] [听我的录音] (MediaPlayer 回放本地录音); 大按钮 开始朗读→读完交给 AI 点评→再读一遍; **每次评估整体替换标记, 读对了标记自然消失**。空标记时绿卡「这一遍没有需要标记的发音 ✓」。
+    - 已知简化: 「听我的录音」回放整段而非单词片段 (逐词切片需时间戳对齐, 待模型能可靠返回再做); 标记不落库, 退出页面即清。
+- ⚠️ **待真机验证**: 跟读全链路 (录音→Gemini 点评→标记→复读消标; 免费档下音频请求是否受限)、云端合成失败原因显示、新语速/语调、麦克风弹窗兜底——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
 
 ## 技术栈
 

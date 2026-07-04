@@ -6,6 +6,7 @@ import com.lingua.english.data.dict.DictDatabaseHelper
 import com.lingua.english.data.dict.DictRepository
 import com.lingua.english.data.dict.OnlineDictClient
 import com.lingua.english.data.local.LinguaDatabase
+import com.lingua.english.data.practice.PronunciationCoach
 import com.lingua.english.data.prefs.SettingsPreferences
 import com.lingua.english.data.repository.ChatRepository
 import com.lingua.english.data.repository.MaterialRepository
@@ -43,6 +44,9 @@ class AppContainer(context: Context) {
 
     /** 全 app 唯一发音入口, 按设置在系统/Gemini 云端之间路由。 */
     val tts: TtsProvider by lazy { RoutingTtsProvider(appScope, prefs, systemTts, geminiTts) }
+
+    /** 跟读教练 (录音 + Gemini 音频点评)。 */
+    val pronunciationCoach: PronunciationCoach by lazy { PronunciationCoach(appContext, prefs) }
 
     val chatRepository: ChatRepository by lazy {
         ChatRepository(database.chatDao(), database.dailyLogDao(), chatApiClient, prefs)

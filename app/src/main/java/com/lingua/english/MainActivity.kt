@@ -41,6 +41,8 @@ import com.lingua.english.ui.screens.corpus.CorpusScreen
 import com.lingua.english.ui.screens.corpus.CorpusViewModel
 import com.lingua.english.ui.screens.corpus.MaterialDetailScreen
 import com.lingua.english.ui.screens.corpus.MaterialDetailViewModel
+import com.lingua.english.ui.screens.practice.PronunciationScreen
+import com.lingua.english.ui.screens.practice.PronunciationViewModel
 import com.lingua.english.ui.screens.review.ReviewScreen
 import com.lingua.english.ui.screens.review.ReviewViewModel
 import com.lingua.english.ui.screens.settings.SettingsScreen
@@ -158,7 +160,20 @@ private fun LinguaApp(container: AppContainer) {
                         key = "material-$materialId",
                         factory = LinguaViewModelFactory.materialDetail(container, materialId),
                     )
-                    MaterialDetailScreen(vm, materialId, onBack = { navController.popBackStack() })
+                    MaterialDetailScreen(
+                        vm = vm,
+                        materialId = materialId,
+                        onBack = { navController.popBackStack() },
+                        onPractice = { navController.navigate(Routes.practice(materialId)) },
+                    )
+                }
+                composable(Routes.PRACTICE) { entry ->
+                    val materialId = entry.arguments?.getString("materialId").orEmpty()
+                    val vm: PronunciationViewModel = viewModel(
+                        key = "practice-$materialId",
+                        factory = LinguaViewModelFactory.pronunciation(container, materialId),
+                    )
+                    PronunciationScreen(vm, onBack = { navController.popBackStack() })
                 }
             }
 

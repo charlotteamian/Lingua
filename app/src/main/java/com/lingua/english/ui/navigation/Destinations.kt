@@ -29,6 +29,8 @@ object Routes {
     const val SETTINGS = "settings"
     const val COMPOSE_ENTRY = "compose_entry"
     const val MATERIAL_DETAIL = "material/{materialId}"
+    const val PRACTICE = "practice/{materialId}"
 
     fun materialDetail(id: String) = "material/$id"
+    fun practice(id: String) = "practice/$id"
 }

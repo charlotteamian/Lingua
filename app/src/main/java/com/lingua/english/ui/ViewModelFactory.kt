@@ -7,6 +7,7 @@ import com.lingua.english.ui.screens.chat.ChatViewModel
 import com.lingua.english.ui.screens.corpus.ComposeEntryViewModel
 import com.lingua.english.ui.screens.corpus.CorpusViewModel
 import com.lingua.english.ui.screens.corpus.MaterialDetailViewModel
+import com.lingua.english.ui.screens.practice.PronunciationViewModel
 import com.lingua.english.ui.screens.review.ReviewViewModel
 import com.lingua.english.ui.screens.settings.SettingsViewModel
 import com.lingua.english.ui.screens.today.TodayViewModel
@@ -48,6 +49,16 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
                     MaterialDetailViewModel(
                         container.materialRepository, container.prefs, container.tts, materialId,
+                    ) as T
+            }
+
+        /** 参数化工厂: 跟读练习页。 */
+        fun pronunciation(container: AppContainer, materialId: String): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    PronunciationViewModel(
+                        container.materialRepository, container.pronunciationCoach, container.tts, materialId,
                     ) as T
             }
     }
