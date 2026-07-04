@@ -21,8 +21,12 @@ data class ReviewSessionState(
     val doneThisSession: Int = 0,
 )
 
-/** 本次复习的范围设置: 类型多选 + 数量上限。 */
+/** 复习范围: 只刷今日到期 (SRS 安排的) 还是全部收藏 (提前加练)。 */
+enum class ReviewScope { DUE, ALL }
+
+/** 本次复习的范围设置: 到期范围 + 类型多选 + 数量上限。 */
 data class ReviewFilter(
+    val scope: ReviewScope = ReviewScope.DUE,
     val kinds: Set<String> = setOf(
         ChunkEntity.KIND_CHUNK, ChunkEntity.KIND_WORD, ChunkEntity.KIND_SENTENCE,
     ),
@@ -60,20 +64,28 @@ class ReviewViewModel(
     private val _filter = MutableStateFlow(ReviewFilter())
     val filter: StateFlow<ReviewFilter> = _filter
 
-    /** 本次会话的卡片 id 快照; null = 未开始。 */
-    private val _sessionIds = MutableStateFlow<Set<String>?>(null)
+    /** 本次会话的卡片 id 快照 (有序); null = 未开始。评完一张移除一个。 */
+    private val _sessionIds = MutableStateFlow<List<String>?>(null)
 
     val sessionActive: StateFlow<Boolean> = _sessionIds
         .map { it != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** 会话队列 = 到期卡 ∩ 快照, 评完一张自然缩短。 */
+    /** 会话队列: 按快照顺序取卡 (支持「全部收藏」加练未到期的卡)。 */
     val sessionQueue: StateFlow<List<ChunkEntity>> =
-        combine(dueCards, _sessionIds) { due, ids ->
-            if (ids == null) emptyList() else due.filter { it.id in ids }
+        combine(allChunks, _sessionIds) { all, ids ->
+            if (ids == null) emptyList()
+            else {
+                val byId = all.associateBy { it.id }
+                ids.mapNotNull { byId[it] }
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val sessionTotal: Int get() = _sessionIds.value?.size ?: 0
+
+    fun setScope(scope: ReviewScope) {
+        _filter.value = _filter.value.copy(scope = scope)
+    }
 
     fun toggleKind(kind: String) {
         val kinds = _filter.value.kinds
@@ -85,14 +97,18 @@ class ReviewViewModel(
         _filter.value = _filter.value.copy(limit = limit)
     }
 
-    /** 按当前筛选把到期卡快照成一次会话 (到期早的优先, 由 SRS 排序保证)。 */
+    /** 按当前筛选快照一次会话。到期范围取 SRS 队列; 全部收藏按到期先后排 (到期/快到期的先来)。 */
     fun startSession() {
         val f = _filter.value
-        val picked = dueCards.value
+        val source = when (f.scope) {
+            ReviewScope.DUE -> dueCards.value
+            ReviewScope.ALL -> allChunks.value.sortedBy { it.dueEpochDay }
+        }
+        val picked = source
             .filter { it.kind in f.kinds }
             .let { if (f.limit != null) it.take(f.limit) else it }
         if (picked.isEmpty()) return
-        _sessionIds.value = picked.map { it.id }.toSet()
+        _sessionIds.value = picked.map { it.id }
         _session.value = ReviewSessionState()
         _speak.value = SpeakCompareState()
     }
@@ -112,6 +128,7 @@ class ReviewViewModel(
     fun grade(card: ChunkEntity, grade: ReviewGrade) {
         viewModelScope.launch {
             reviewRepo.grade(card, grade)
+            _sessionIds.value = _sessionIds.value?.minus(card.id)
             _session.value = ReviewSessionState(doneThisSession = _session.value.doneThisSession + 1)
             _speak.value = SpeakCompareState()
         }

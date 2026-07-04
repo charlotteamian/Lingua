@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Button
@@ -52,7 +54,7 @@ import java.time.LocalDate
 
 /** 复习: 中文意思 → 想出英文说法 → 自评。输出导向, 呼应 OIO 的内化环节。 */
 @Composable
-fun ReviewScreen(vm: ReviewViewModel) {
+fun ReviewScreen(vm: ReviewViewModel, onOpenLibrary: () -> Unit) {
     val due by vm.dueCards.collectAsStateWithLifecycle()
     val all by vm.allChunks.collectAsStateWithLifecycle()
     val session by vm.session.collectAsStateWithLifecycle()
@@ -95,14 +97,29 @@ fun ReviewScreen(vm: ReviewViewModel) {
             }
         }
 
-        // 未开始: 选类型/数量再开始 (SRS 已按到期先后排好优先级)
+        // 未开始: 选范围/类型/数量再开始 (今日到期 = SRS 安排; 全部收藏 = 提前加练)
         if (!sessionActive) {
             item {
                 LinguaCard {
                     Text("这次复习什么", style = MaterialTheme.typography.titleMedium)
+                    val source = if (filter.scope == ReviewScope.DUE) due else all
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = filter.scope == ReviewScope.DUE,
+                            onClick = { vm.setScope(ReviewScope.DUE) },
+                            label = { Text("今日到期 ${due.size}", maxLines = 1) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        FilterChip(
+                            selected = filter.scope == ReviewScope.ALL,
+                            onClick = { vm.setScope(ReviewScope.ALL) },
+                            label = { Text("全部收藏 ${all.size}", maxLines = 1) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         KIND_OPTIONS.forEach { (kind, label) ->
-                            val count = due.count { it.kind == kind }
+                            val count = source.count { it.kind == kind }
                             FilterChip(
                                 selected = kind in filter.kinds,
                                 onClick = { vm.toggleKind(kind) },
@@ -121,14 +138,42 @@ fun ReviewScreen(vm: ReviewViewModel) {
                             )
                         }
                     }
-                    val available = due.count { it.kind in filter.kinds }
+                    val available = source.count { it.kind in filter.kinds }
                         .let { if (filter.limit != null) minOf(it, filter.limit!!) else it }
                     Button(
                         onClick = vm::startSession,
                         enabled = available > 0,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (available > 0) "开始复习 ($available 张)" else "所选范围没有到期卡")
+                        Text(
+                            if (available > 0) "开始复习 ($available 张)"
+                            else if (filter.scope == ReviewScope.DUE) "所选类型今天没有到期卡, 试试「全部收藏」"
+                            else "所选类型还没有收藏",
+                        )
+                    }
+                }
+            }
+
+            // 收藏库入口 (专门页面, 不平铺)
+            item {
+                LinguaCard(modifier = Modifier.clickable(onClick = onOpenLibrary)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("收藏库", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                KIND_OPTIONS.joinToString(" · ") { (kind, label) ->
+                                    "$label ${all.count { it.kind == kind }}"
+                                },
+                                color = LinguaOnSurfaceMuted,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                            )
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
             }
@@ -263,24 +308,10 @@ fun ReviewScreen(vm: ReviewViewModel) {
             }
         }
 
-        // 收藏库: 按类型分组, 不再平铺
-        if (!sessionActive) {
-            KIND_OPTIONS.forEach { (kind, label) ->
-                val group = all.filter { it.kind == kind }
-                if (group.isNotEmpty()) {
-                    item(key = "header-$kind") {
-                        Text("$label · ${group.size}", style = MaterialTheme.typography.titleMedium)
-                    }
-                    items(group, key = { it.id }) { chunk ->
-                        ChunkRow(chunk, onSpeak = vm::speak, onDelete = vm::delete)
-                    }
-                }
-            }
-        }
     }
 }
 
-private val KIND_OPTIONS = listOf(
+internal val KIND_OPTIONS = listOf(
     ChunkEntity.KIND_SENTENCE to "句子",
     ChunkEntity.KIND_CHUNK to "词块",
     ChunkEntity.KIND_WORD to "生词",
@@ -294,7 +325,7 @@ private val LIMIT_OPTIONS = listOf<Pair<Int?, String>>(
 )
 
 @Composable
-private fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (String) -> Unit) {
+internal fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (String) -> Unit) {
     val today = LocalDate.now().toEpochDay()
     Row(
         modifier = Modifier

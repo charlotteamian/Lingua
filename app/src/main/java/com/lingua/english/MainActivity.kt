@@ -45,6 +45,7 @@ import com.lingua.english.ui.screens.corpus.MaterialDetailScreen
 import com.lingua.english.ui.screens.corpus.MaterialDetailViewModel
 import com.lingua.english.ui.screens.practice.PronunciationScreen
 import com.lingua.english.ui.screens.practice.PronunciationViewModel
+import com.lingua.english.ui.screens.review.LibraryScreen
 import com.lingua.english.ui.screens.review.ReviewScreen
 import com.lingua.english.ui.screens.review.ReviewViewModel
 import com.lingua.english.ui.screens.settings.SettingsScreen
@@ -159,7 +160,11 @@ private fun LinguaApp(container: AppContainer) {
                 }
                 composable(TopDestination.Review.route) {
                     val vm: ReviewViewModel = viewModel(factory = factory)
-                    ReviewScreen(vm)
+                    ReviewScreen(vm, onOpenLibrary = { navController.navigate(Routes.LIBRARY) })
+                }
+                composable(Routes.LIBRARY) {
+                    val vm: ReviewViewModel = viewModel(factory = factory)
+                    LibraryScreen(vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.SETTINGS) {
                     val vm: SettingsViewModel = viewModel(factory = factory)

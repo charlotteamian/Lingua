@@ -61,7 +61,12 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **收藏状态 DB 驱动**: `ReviewRepository.savedTexts` (全部 chunk 文本归一化小写集合) 供对话/语料/往期各处显示 ✓ 已收; ▸ 词块行已收藏显示绿勾不再给 ＋; `addSentence` 改先落库再后台翻译 (`ChunkDao.updateMeaning`), ✓ 秒现。
   - **对话分话题归档**: 对话页只显示**当前话题** (最后一个 contextBreak 之后, `sessionsOf` 切分); 顶栏「往期」→ `chat_history` 路由列出旧话题卡 (时间/条数/首句预览) → `chat_session/{anchorId}` 只读回看 (气泡渲染复用 `MessageBubble`, 已改 internal; 点词/朗读/收藏照常)。无新表, 全部由 contextBreak 派生。
   - **复习会话化**: `ReviewFilter` (类型多选 词块/生词/句子 + 数量 10/20/50/全部, 默认全类型 20 张) → 「开始复习 (N 张)」把到期卡快照成 `_sessionIds`, 队列 = 到期∩快照 (评完自动缩短), 顶部「结束」可中断; 完成卡显示本次张数+剩余到期。收藏库列表按 句子/词块/生词 分组显示, 不再平铺。SRS 仍是简化 SM-2 (到期早的优先)。
-  - 验证: assembleDebug 通过。**待真机**: 往期归档/回看、复习会话选择流、✓ 已收状态各入口一致性。——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
+  - 验证: assembleDebug 通过。**待真机**: 往期归档/回看、复习会话选择流、✓ 已收状态各入口一致性。
+- ✅ **2026-07-04 复习范围加维度 + 收藏库独立页 (charlotte: 参考一般背单词 app)**:
+  - 调研确认主流范式 (Anki 牌组/墨墨词库): 复习首页只放今日任务+设置+开始, 词库是独立入口页。
+  - `ReviewScope` (DUE 今日到期 / ALL 全部收藏): 范围 chips 在类型/数量之上; ALL = 提前加练未到期的卡, 按到期先后排序取卡。会话快照改**有序 id 列表**, `grade()` 显式移除 (支持未到期卡不依赖 due 流缩短); `sessionQueue` 改从 allChunks 映射。
+  - **收藏库独立页** (`library` 路由, `LibraryScreen`): 复习页平铺列表删除, 换成「收藏库」入口卡 (句子/词块/生词计数 + →); 库内: 全部/句子/词块/生词筛选 chips + 最近收藏在前 + 朗读/删除 (`ChunkRow` 改 internal 复用)。
+  - 验证: assembleDebug 通过。——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
 
 ## 技术栈
 

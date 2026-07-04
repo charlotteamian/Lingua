@@ -32,6 +32,7 @@ object Routes {
     const val PRACTICE = "practice/{materialId}"
     const val CHAT_HISTORY = "chat_history"
     const val CHAT_SESSION = "chat_session/{anchorId}"
+    const val LIBRARY = "library"
 
     fun materialDetail(id: String) = "material/$id"
     fun practice(id: String) = "practice/$id"
