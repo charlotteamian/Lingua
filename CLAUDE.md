@@ -74,6 +74,7 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **UI**: 语料页顶部「听读 · 视频/播客」入口卡 → `media` 素材库 (URL 输入+拉字幕 / 本地音频挑选, 列表卡) → `media_player/{id}` 播放页: YouTube 用 WebView + IFrame API (JS `Bridge.postTime` 每 500ms 回报进度, `seekTo()` 定位) / 音频用 MediaPlayer (播放/暂停/±10s); 下半字幕 LazyColumn **同步高亮当前句 + 自动跟随滚动** (选中行时暂停跟随), 点词查词典, 点行出操作: ▶从这句播 / 收藏(进句子复习) / AI 解释 (行内琥珀色显示, 每次几百 token)。
   - **系统分享接入**: Manifest ACTION_SEND text/plain + launchMode=singleTask; MainActivity 收到分享文本 → `container.pendingSharedUrl` → 自动跳听读页并填进输入框。
   - 验证: assembleDebug 通过。**待真机**: YouTube 字幕抓取成功率 (代理环境)、WebView 播放器加载、时间同步/定位、本地音频导入+转写、系统分享入口。播客转写上限 18MB 是 inline 限制, 以后要更长的再上 Gemini Files API (2GB)。
+  - **字幕抓取三层通道 (charlotte 真机报「没拿到字幕」后加固)**: Mac 实测该代理出口 IP 被 YouTube 风控——watch 页和 Innertube 全部客户端 (WEB/MWEB/TVHTML5→LOGIN_REQUIRED, ANDROID/IOS→FAILED_PRECONDITION) 裸 HTTP 全灭。通道链: ① Innertube ANDROID player API → ② watch 页抓取 → ③ **WebViewCaptionFetcher 终极兜底**——真 WebView 加载 watch 页 (完整执行 botguard JS, 和浏览器看视频同通道), 页内 JS 等 `ytInitialPlayerResponse` → 选英文轨 → 页内 `fetch(baseUrl+fmt=json3)` (带 cookie/PO token 上下文) → JSBridge 回传; 预置 `SOCS=CAI` cookie 防欧盟 consent 页; 45s 超时。失败报错会分别给出直连/网页通道原因。
 - ✅ **2026-07-04 复习范围加维度 + 收藏库独立页 (charlotte: 参考一般背单词 app)**:
   - 调研确认主流范式 (Anki 牌组/墨墨词库): 复习首页只放今日任务+设置+开始, 词库是独立入口页。
   - `ReviewScope` (DUE 今日到期 / ALL 全部收藏): 范围 chips 在类型/数量之上; ALL = 提前加练未到期的卡, 按到期先后排序取卡。会话快照改**有序 id 列表**, `grade()` 显式移除 (支持未到期卡不依赖 due 流缩短); `sessionQueue` 改从 allChunks 映射。

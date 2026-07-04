@@ -41,6 +41,8 @@ class MediaRepository(
     private val captions: YouTubeCaptionClient,
 ) {
 
+    private val webFetcher by lazy { WebViewCaptionFetcher(context) }
+
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -67,11 +69,18 @@ class MediaRepository(
         )
     }
 
-    /** 导入 YouTube: 拉字幕即完成, 0 token。 */
+    /** 导入 YouTube: 拉字幕即完成, 0 token。裸 HTTP 被风控时用 WebView 真浏览器通道兜底。 */
     suspend fun importYouTube(url: String): String {
         val videoId = captions.extractVideoId(url)
             ?: throw AiException("这不像是 YouTube 链接, 检查一下。")
-        val result = captions.fetch(videoId)
+        val result = runCatching { captions.fetch(videoId) }.getOrElse { direct ->
+            val raw = runCatching { webFetcher.fetch(videoId) }.getOrElse { web ->
+                throw AiException(
+                    "字幕拉取失败——直连: ${direct.message?.take(80)}; 网页通道: ${web.message?.take(80)}"
+                )
+            }
+            captions.parseJson3(videoId, raw.title.ifBlank { videoId }, raw.captions)
+        }
         val id = UUID.randomUUID().toString()
         saveTranscript(id, result.lines)
         mediaDao.insert(

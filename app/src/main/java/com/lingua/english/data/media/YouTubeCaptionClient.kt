@@ -6,20 +6,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /** 一行字幕: 起始秒 + 英文。 */
 @Serializable
 data class TranscriptLine(val s: Double, val t: String)
 
 /**
- * 拉 YouTube 英文字幕 (免费, 0 token): 抓 watch 页解析 captionTracks →
- * 取英文轨 (人工优先, 没有就自动生成 asr) → json3 拉全文。
- * 非官方接口, YouTube 改版可能失效; 失败给可读错误。
+ * 拉 YouTube 英文字幕 (免费, 0 token)。
+ * 首选 Innertube player API 伪装 Android 官方客户端 (yt-dlp 同款, 基本不吃风控),
+ * 失败再退回 watch 页 HTML 抓取。非官方接口, YouTube 改版可能失效。
  */
 class YouTubeCaptionClient {
 
@@ -44,33 +50,82 @@ class YouTubeCaptionClient {
             Regex("embed/([A-Za-z0-9_-]{11})"),
             Regex("live/([A-Za-z0-9_-]{11})"),
         )
-        return patterns.firstNotNullOfOrNull { it.find(url)?.groupValues?.get(1) }
+        return patterns.firstNotNullOfOrNull { it.find(url.trim())?.groupValues?.get(1) }
     }
 
     suspend fun fetch(videoId: String): CaptionResult = withContext(Dispatchers.IO) {
-        val html = get("https://www.youtube.com/watch?v=$videoId&hl=en")
+        val errors = mutableListOf<String>()
+        for (attempt in listOf(::viaInnertube, ::viaWatchPage)) {
+            val result = runCatching { attempt(videoId) }
+            result.getOrNull()?.let { return@withContext it }
+            errors.add(result.exceptionOrNull()?.message ?: "未知错误")
+        }
+        throw AiException("拉字幕失败: ${errors.joinToString(" / ").take(200)}")
+    }
 
+    /** 首选: Innertube player API, 伪装 Android 官方客户端。 */
+    private fun viaInnertube(videoId: String): CaptionResult {
+        val body = buildJsonObject {
+            putJsonObject("context") {
+                putJsonObject("client") {
+                    put("clientName", "ANDROID")
+                    put("clientVersion", "19.09.37")
+                    put("androidSdkVersion", 34)
+                    put("hl", "en")
+                    put("gl", "US")
+                }
+            }
+            put("videoId", videoId)
+        }
+        val request = Request.Builder()
+            .url("https://www.youtube.com/youtubei/v1/player?key=$ANDROID_KEY&prettyPrint=false")
+            .header("User-Agent", "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        val text = client.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) error("player API HTTP ${resp.code}")
+            resp.body?.string().orEmpty()
+        }
+        val root = json.parseToJsonElement(text).jsonObject
+        val status = root["playabilityStatus"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+        if (status != null && status != "OK") error("视频不可播 ($status)")
+        val title = root["videoDetails"]?.jsonObject?.get("title")?.jsonPrimitive?.content ?: videoId
+        val tracks = root["captions"]?.jsonObject
+            ?.get("playerCaptionsTracklistRenderer")?.jsonObject
+            ?.get("captionTracks")?.jsonArray
+            ?: error("这个视频没有字幕轨")
+        return buildResult(videoId, title, tracks)
+    }
+
+    /** 兜底: watch 页 HTML 抓取 (可能吃风控页)。 */
+    private fun viaWatchPage(videoId: String): CaptionResult {
+        val html = get("https://www.youtube.com/watch?v=$videoId&hl=en")
         val title = Regex("<title>(.*?)</title>", RegexOption.DOT_MATCHES_ALL)
             .find(html)?.groupValues?.get(1)
             ?.removeSuffix(" - YouTube")?.trim()
             ?.takeIf { it.isNotEmpty() } ?: videoId
-
         val tracksJson = Regex("\"captionTracks\":(\\[.*?\\])").find(html)?.groupValues?.get(1)
-            ?: throw AiException("没拿到这个视频的字幕信息 (可能是网络被拦, 或视频没有字幕)。")
-        val tracks = json.parseToJsonElement(tracksJson).jsonArray.map { it.jsonObject }
-        val english = tracks.filter {
+            ?: error("页面里没有字幕信息 (可能被风控)")
+        val tracks = json.parseToJsonElement(tracksJson).jsonArray
+        return buildResult(videoId, title, tracks)
+    }
+
+    /** 选英文轨 (人工优先, 兜底自动生成) → 拉 json3 → 合并成句。 */
+    private fun buildResult(videoId: String, title: String, tracks: JsonArray): CaptionResult {
+        val english = tracks.map { it.jsonObject }.filter {
             it["languageCode"]?.jsonPrimitive?.content.orEmpty().startsWith("en")
         }
-        // 人工字幕优先, 其次自动生成 (kind=asr)
         val track = english.firstOrNull { it["kind"]?.jsonPrimitive?.content != "asr" }
             ?: english.firstOrNull()
-            ?: throw AiException("这个视频没有英文字幕 (其它语言的也没法用来学英文)。")
+            ?: error("没有英文字幕 (其它语言的没法用来学英文)")
         val baseUrl = track["baseUrl"]!!.jsonPrimitive.content
+        return parseJson3(videoId, title, get("$baseUrl&fmt=json3"))
+    }
 
-        val captionJson = get("$baseUrl&fmt=json3")
+    /** json3 字幕文本 → 合并成句。WebView 兜底通道也用这个。 */
+    fun parseJson3(videoId: String, title: String, captionJson: String): CaptionResult {
         val events = json.parseToJsonElement(captionJson).jsonObject["events"]?.jsonArray
-            ?: throw AiException("字幕内容解析失败, 再试一次。")
-
+            ?: error("字幕内容解析失败")
         val raw = events.mapNotNull { event ->
             val obj = event.jsonObject
             val start = obj["tStartMs"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: return@mapNotNull null
@@ -79,8 +134,8 @@ class YouTubeCaptionClient {
                 ?.replace('\n', ' ')?.trim()
             if (text.isNullOrEmpty()) null else TranscriptLine(start / 1000.0, text)
         }
-        if (raw.isEmpty()) throw AiException("字幕是空的, 这个视频可能没法用。")
-        CaptionResult(videoId, title, mergeLines(raw))
+        if (raw.isEmpty()) error("字幕是空的")
+        return CaptionResult(videoId, title, mergeLines(raw))
     }
 
     /** ASR 字幕碎片很细, 合并到 ~80 字符/条, 停顿 >4s 断开。 */
@@ -114,8 +169,13 @@ class YouTubeCaptionClient {
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
         client.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) throw AiException("请求失败 HTTP ${resp.code} (检查网络/代理)。")
+            if (!resp.isSuccessful) error("HTTP ${resp.code}")
             return resp.body?.string().orEmpty()
         }
+    }
+
+    companion object {
+        /** InnerTube Android 客户端公开 key (嵌在官方 app 里, 各开源项目通用)。 */
+        private const val ANDROID_KEY = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w"
     }
 }
