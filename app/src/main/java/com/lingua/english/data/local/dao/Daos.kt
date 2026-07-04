@@ -67,6 +67,9 @@ interface ChunkDao {
     @Update
     suspend fun update(chunk: ChunkEntity)
 
+    @Query("UPDATE chunk SET meaningZh = :meaningZh WHERE id = :id")
+    suspend fun updateMeaning(id: String, meaningZh: String)
+
     @Query("DELETE FROM chunk WHERE id = :id")
     suspend fun deleteById(id: String)
 

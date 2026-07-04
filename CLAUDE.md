@@ -53,7 +53,15 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **✎ 纠正后置 (charlotte: AI 开头总复述我的话很疑惑)**: tutorSystem 规则 5/6 重写——先像朋友一样回应内容, ✎ better 行放在**回复最末尾**且至多一条; 中文输入也是先回应最后给英文说法。
   - **跟读点评标准可编辑**: `PronunciationCoach.DEFAULT_RULES` (公开常量) + `prefs.pronRules` (空=默认); 设置页新卡「跟读点评标准」预填默认文本可改 (严/松/只盯重音…), 「恢复默认」清空。提示词结构部分 (目标文本/单词表/JSON 格式) 固定不可改, 只开放评判标准段。
   - **收藏句子 → 复习「出中文说英文」**: ChunkEntity 新 kind=`sentence`; `ReviewRepository.addSentence` 收藏时 AI 顺手翻中文当卡面 (失败不阻塞); 入口: 对话每条消息气泡的 BookmarkAdd 图标 + 语料详情播放行的 BookmarkAdd → `SentenceCollectSheet` (按句切分, 跳过 ✎/▸ 行, 点一句收一句)。复习页句子卡: 正面中文 + **「开口说英文 (录音对比)」**——录音 → `PronunciationCoach.assess(原句)` → 自动亮答案 + 列差异 (漏词/读错词/总评); 也可「直接看答案」。评完一张 speakCompare 状态重置。
-  - 验证: assembleDebug 通过。**待真机**: 语音消息全链路 (录→发→转写回填→气泡回放)、DB v2 迁移后旧聊天无恙、✎ 是否真的到末尾 (模型遵循度)、收藏句子→复习句子卡→说英文对比闭环。——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
+  - 验证: assembleDebug 通过。**待真机**: 语音消息全链路 (录→发→转写回填→气泡回放)、DB v2 迁移后旧聊天无恙、✎ 是否真的到末尾 (模型遵循度)、收藏句子→复习句子卡→说英文对比闭环。
+- ✅ **2026-07-04 六连优化 (charlotte 第二轮反馈)**:
+  - **✎ 句子可收藏**: `splitSentences` 把 ✎ 行的英文说法抽出来放句子清单最前 (最值得收的就是纠正句)。
+  - **自动朗读的 ✎ 播报口吻**: `stripMarkup` 把 ✎ 行读成 "By the way, a more natural way to say that is: …", ▸ 词块行不读。
+  - **中英夹杂**: tutorSystem 新规则 7——学习者英文里夹中文词 (不会表达) 时, 回复里引用中文并给英式说法, 最后 ✎ 行给完整改写句。
+  - **收藏状态 DB 驱动**: `ReviewRepository.savedTexts` (全部 chunk 文本归一化小写集合) 供对话/语料/往期各处显示 ✓ 已收; ▸ 词块行已收藏显示绿勾不再给 ＋; `addSentence` 改先落库再后台翻译 (`ChunkDao.updateMeaning`), ✓ 秒现。
+  - **对话分话题归档**: 对话页只显示**当前话题** (最后一个 contextBreak 之后, `sessionsOf` 切分); 顶栏「往期」→ `chat_history` 路由列出旧话题卡 (时间/条数/首句预览) → `chat_session/{anchorId}` 只读回看 (气泡渲染复用 `MessageBubble`, 已改 internal; 点词/朗读/收藏照常)。无新表, 全部由 contextBreak 派生。
+  - **复习会话化**: `ReviewFilter` (类型多选 词块/生词/句子 + 数量 10/20/50/全部, 默认全类型 20 张) → 「开始复习 (N 张)」把到期卡快照成 `_sessionIds`, 队列 = 到期∩快照 (评完自动缩短), 顶部「结束」可中断; 完成卡显示本次张数+剩余到期。收藏库列表按 句子/词块/生词 分组显示, 不再平铺。SRS 仍是简化 SM-2 (到期早的优先)。
+  - 验证: assembleDebug 通过。**待真机**: 往期归档/回看、复习会话选择流、✓ 已收状态各入口一致性。——首启词典拷贝、TTS 英音可用性、点词弹卡、AI 对话/转语料 (要先在设置填 Key)、SRS 队列流转、语音输入 (依赖设备有语音识别服务, 通常来自 Google app; 国产 ROM 无 GMS 时会提示不可用)。charlotte Android Studio 打开 → Sync → Run
 
 ## 技术栈
 

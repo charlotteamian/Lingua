@@ -33,7 +33,9 @@ import com.lingua.english.ui.components.WordLookupController
 import com.lingua.english.ui.components.WordLookupSheet
 import com.lingua.english.ui.navigation.Routes
 import com.lingua.english.ui.navigation.TopDestination
+import com.lingua.english.ui.screens.chat.ChatHistoryScreen
 import com.lingua.english.ui.screens.chat.ChatScreen
+import com.lingua.english.ui.screens.chat.ChatSessionScreen
 import com.lingua.english.ui.screens.chat.ChatViewModel
 import com.lingua.english.ui.screens.corpus.ComposeEntryScreen
 import com.lingua.english.ui.screens.corpus.ComposeEntryViewModel
@@ -132,7 +134,20 @@ private fun LinguaApp(container: AppContainer) {
                 }
                 composable(TopDestination.Chat.route) {
                     val vm: ChatViewModel = viewModel(factory = factory)
-                    ChatScreen(vm)
+                    ChatScreen(vm, onOpenHistory = { navController.navigate(Routes.CHAT_HISTORY) })
+                }
+                composable(Routes.CHAT_HISTORY) {
+                    val vm: ChatViewModel = viewModel(factory = factory)
+                    ChatHistoryScreen(
+                        vm = vm,
+                        onBack = { navController.popBackStack() },
+                        onOpenSession = { navController.navigate(Routes.chatSession(it)) },
+                    )
+                }
+                composable(Routes.CHAT_SESSION) { entry ->
+                    val anchorId = entry.arguments?.getString("anchorId").orEmpty()
+                    val vm: ChatViewModel = viewModel(factory = factory)
+                    ChatSessionScreen(vm, anchorId, onBack = { navController.popBackStack() })
                 }
                 composable(TopDestination.Corpus.route) {
                     val vm: CorpusViewModel = viewModel(factory = factory)

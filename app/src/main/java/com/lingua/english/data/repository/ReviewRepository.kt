@@ -11,6 +11,7 @@ import com.lingua.english.domain.Srs
 import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class ReviewRepository(
     private val chunkDao: ChunkDao,
@@ -63,27 +64,21 @@ class ReviewRepository(
     suspend fun hasText(text: String): Boolean = chunkDao.hasText(text)
 
     /**
-     * 收藏整句进复习: AI 顺手翻一句中文当卡片正面 (失败不阻塞收藏, 正面留空)。
+     * 收藏整句进复习: 先落库 (UI 立刻显示已收藏), 中文翻译后台补上。
      * 复习时出中文 → 学习者说英文 → 跟读对比。
      */
     suspend fun addSentence(english: String): Boolean {
         val sentence = english.trim()
         if (sentence.isEmpty() || chunkDao.hasText(sentence)) return false
-        val zh = runCatching {
-            client.chat(
-                system = "",
-                turns = listOf(ChatTurn("user", "把这句英文翻译成自然的中文, 只输出译文, 不要引号:\n$sentence")),
-                maxTokens = 256,
-            )
-        }.getOrNull()?.trim().orEmpty().take(200)
+        val id = UUID.randomUUID().toString()
         val today = LocalDate.now()
         chunkDao.insertAll(
             listOf(
                 ChunkEntity(
-                    id = UUID.randomUUID().toString(),
+                    id = id,
                     materialId = null,
                     text = sentence,
-                    meaningZh = zh,
+                    meaningZh = "",
                     note = "收藏的句子",
                     kind = ChunkEntity.KIND_SENTENCE,
                     createdAtEpochMs = System.currentTimeMillis(),
@@ -91,6 +86,19 @@ class ReviewRepository(
                 )
             )
         )
+        runCatching {
+            client.chat(
+                system = "",
+                turns = listOf(ChatTurn("user", "把这句英文翻译成自然的中文, 只输出译文, 不要引号:\n$sentence")),
+                maxTokens = 256,
+            )
+        }.getOrNull()?.trim()?.take(200)?.takeIf { it.isNotEmpty() }?.let { zh ->
+            chunkDao.updateMeaning(id, zh)
+        }
         return true
     }
+
+    /** 已收藏文本集合 (归一化小写), UI 用来显示 ✓ 已收。 */
+    val savedTexts: Flow<Set<String>> = chunkDao.observeAll()
+        .map { list -> list.map { it.text.trim().lowercase() }.toSet() }
 }

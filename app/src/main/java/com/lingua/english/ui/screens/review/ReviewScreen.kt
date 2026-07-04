@@ -22,11 +22,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -58,12 +60,15 @@ fun ReviewScreen(vm: ReviewViewModel) {
     val lookup = LocalWordLookup.current
     val context = LocalContext.current
 
-    val currentCard = due.firstOrNull()
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) currentCard?.let { vm.toggleSpeakCompare(it) }
+        if (granted) vm.sessionQueue.value.firstOrNull()?.let { vm.toggleSpeakCompare(it) }
     }
+
+    val sessionActive by vm.sessionActive.collectAsStateWithLifecycle()
+    val queue by vm.sessionQueue.collectAsStateWithLifecycle()
+    val filter by vm.filter.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -71,18 +76,65 @@ fun ReviewScreen(vm: ReviewViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Column {
-                Text("复习", style = MaterialTheme.typography.headlineMedium)
-                Text(
-                    if (due.isNotEmpty()) "还剩 ${due.size} 张 · 本次已完成 ${session.doneThisSession}"
-                    else "今日到期清零",
-                    color = LinguaOnSurfaceMuted,
-                    style = MaterialTheme.typography.labelMedium,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("复习", style = MaterialTheme.typography.headlineMedium)
+                    Text(
+                        when {
+                            sessionActive -> "本次还剩 ${queue.size} 张 · 已完成 ${session.doneThisSession}"
+                            due.isNotEmpty() -> "今日到期 ${due.size} 张"
+                            else -> "今日到期清零"
+                        },
+                        color = LinguaOnSurfaceMuted,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                if (sessionActive) {
+                    TextButton(onClick = vm::endSession) { Text("结束") }
+                }
             }
         }
 
-        val card = due.firstOrNull()
+        // 未开始: 选类型/数量再开始 (SRS 已按到期先后排好优先级)
+        if (!sessionActive) {
+            item {
+                LinguaCard {
+                    Text("这次复习什么", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        KIND_OPTIONS.forEach { (kind, label) ->
+                            val count = due.count { it.kind == kind }
+                            FilterChip(
+                                selected = kind in filter.kinds,
+                                onClick = { vm.toggleKind(kind) },
+                                label = { Text("$label $count", maxLines = 1) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LIMIT_OPTIONS.forEach { (limit, label) ->
+                            FilterChip(
+                                selected = filter.limit == limit,
+                                onClick = { vm.setLimit(limit) },
+                                label = { Text(label, maxLines = 1) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    val available = due.count { it.kind in filter.kinds }
+                        .let { if (filter.limit != null) minOf(it, filter.limit!!) else it }
+                    Button(
+                        onClick = vm::startSession,
+                        enabled = available > 0,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (available > 0) "开始复习 ($available 张)" else "所选范围没有到期卡")
+                    }
+                }
+            }
+        }
+
+        val card = if (sessionActive) queue.firstOrNull() else null
         if (card != null) {
             item {
                 LinguaCard(background = LinguaGradients.reviewAccent) {
@@ -192,32 +244,54 @@ fun ReviewScreen(vm: ReviewViewModel) {
                     }
                 }
             }
-        } else if (session.doneThisSession > 0) {
+        } else if (sessionActive) {
+            // 本次会话完成
             item {
                 LinguaCard(background = LinguaGradients.reviewAccent) {
-                    Text("清零了 ✓", style = MaterialTheme.typography.titleLarge, color = LinguaTertiary)
+                    Text("本次完成 ✓", style = MaterialTheme.typography.titleLarge, color = LinguaTertiary)
                     Text(
-                        "本次复习 ${session.doneThisSession} 张。想多吃进一点, 去语料页听一条自己的素材。",
+                        "复习了 ${session.doneThisSession} 张。" +
+                            if (due.isNotEmpty()) "今日还有 ${due.size} 张到期, 可以再来一轮。"
+                            else "今日到期全部清零。",
                         color = LinguaOnSurfaceMuted,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    Button(onClick = vm::endSession, modifier = Modifier.fillMaxWidth()) {
+                        Text("好")
+                    }
                 }
             }
         }
 
-        if (all.isNotEmpty()) {
-            item {
-                Text(
-                    "全部词块 · ${all.size}",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-            items(all, key = { it.id }) { chunk ->
-                ChunkRow(chunk, onSpeak = vm::speak, onDelete = vm::delete)
+        // 收藏库: 按类型分组, 不再平铺
+        if (!sessionActive) {
+            KIND_OPTIONS.forEach { (kind, label) ->
+                val group = all.filter { it.kind == kind }
+                if (group.isNotEmpty()) {
+                    item(key = "header-$kind") {
+                        Text("$label · ${group.size}", style = MaterialTheme.typography.titleMedium)
+                    }
+                    items(group, key = { it.id }) { chunk ->
+                        ChunkRow(chunk, onSpeak = vm::speak, onDelete = vm::delete)
+                    }
+                }
             }
         }
     }
 }
+
+private val KIND_OPTIONS = listOf(
+    ChunkEntity.KIND_SENTENCE to "句子",
+    ChunkEntity.KIND_CHUNK to "词块",
+    ChunkEntity.KIND_WORD to "生词",
+)
+
+private val LIMIT_OPTIONS = listOf<Pair<Int?, String>>(
+    10 to "10 张",
+    20 to "20 张",
+    50 to "50 张",
+    null to "全部",
+)
 
 @Composable
 private fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (String) -> Unit) {

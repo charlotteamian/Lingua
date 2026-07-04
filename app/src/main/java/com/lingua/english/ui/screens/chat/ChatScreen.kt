@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -61,14 +62,16 @@ import com.lingua.english.ui.theme.LinguaAmber
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaSecondary
 import com.lingua.english.ui.theme.LinguaSurfaceVariant
+import com.lingua.english.ui.theme.LinguaTertiary
 
 @Composable
-fun ChatScreen(vm: ChatViewModel) {
-    val messages by vm.messages.collectAsStateWithLifecycle()
+fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
+    val messages by vm.currentMessages.collectAsStateWithLifecycle()
     val sendState by vm.sendState.collectAsStateWithLifecycle()
     val hideText by vm.hideChatText.collectAsStateWithLifecycle()
     val voice by vm.voice.collectAsStateWithLifecycle()
     val playingVoice by vm.playingVoice.collectAsStateWithLifecycle()
+    val savedTexts by vm.savedTexts.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val context = LocalContext.current
     var input by remember { mutableStateOf("") }
@@ -77,7 +80,6 @@ fun ChatScreen(vm: ChatViewModel) {
 
     // 收藏句子底部卡: 非空 = 打开, 值为来源消息全文
     var collectSource by remember { mutableStateOf<String?>(null) }
-    val collectedSentences by vm.collectedSentences.collectAsStateWithLifecycle()
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -104,6 +106,7 @@ fun ChatScreen(vm: ChatViewModel) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            TextButton(onClick = onOpenHistory) { Text("往期") }
             TextButton(onClick = vm::markNewTopic, enabled = !sendState.pendingNewTopic) {
                 Text(if (sendState.pendingNewTopic) "已开新话题" else "新话题")
             }
@@ -123,6 +126,7 @@ fun ChatScreen(vm: ChatViewModel) {
                     message = message,
                     hidden = hideText && message.role == "assistant" && message.id !in revealedIds,
                     playingVoice = playingVoice,
+                    savedTexts = savedTexts,
                     onReveal = { revealedIds.add(message.id) },
                     onSpeak = vm::speak,
                     onSaveChunk = vm::saveChunk,
@@ -217,7 +221,7 @@ fun ChatScreen(vm: ChatViewModel) {
 
     SentenceCollectSheet(
         sourceText = collectSource,
-        collected = collectedSentences,
+        collected = savedTexts,
         onCollect = vm::collectSentence,
         onDismiss = { collectSource = null },
     )
@@ -235,12 +239,13 @@ private fun EmptyChatHint() {
     }
 }
 
-/** 消息气泡。助手消息逐行渲染: ✎ 纠正行 / ▸ 词块行 (带收藏) / 普通行 (可点查词)。 */
+/** 消息气泡。助手消息逐行渲染: ✎ 纠正行 / ▸ 词块行 (带收藏) / 普通行 (可点查词)。往期话题页复用。 */
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     message: ChatMessageEntity,
     hidden: Boolean,
     playingVoice: String?,
+    savedTexts: Set<String>,
     onReveal: () -> Unit,
     onSpeak: (String) -> Unit,
     onSaveChunk: (String, String) -> Unit,
@@ -319,7 +324,7 @@ private fun MessageBubble(
                 }
 
                 else -> {
-                    AssistantContent(message.content, lookup, onSaveChunk)
+                    AssistantContent(message.content, lookup, savedTexts, onSaveChunk)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { onSpeak(message.content) }, modifier = Modifier.size(28.dp)) {
                             Icon(
@@ -350,6 +355,7 @@ private fun MessageBubble(
 private fun AssistantContent(
     content: String,
     lookup: (String) -> Unit,
+    savedTexts: Set<String>,
     onSaveChunk: (String, String) -> Unit,
 ) {
     content.lines().forEach { line ->
@@ -376,16 +382,26 @@ private fun AssistantContent(
                         modifier = Modifier.weight(1f),
                     )
                     if (phrase.isNotEmpty()) {
-                        IconButton(
-                            onClick = { onSaveChunk(phrase, zh) },
-                            modifier = Modifier.size(28.dp),
-                        ) {
+                        val saved = phrase.trim().lowercase() in savedTexts
+                        if (saved) {
                             Icon(
-                                Icons.Filled.Add,
-                                contentDescription = "收进复习",
-                                tint = LinguaSecondary,
+                                Icons.Filled.Check,
+                                contentDescription = "已在复习",
+                                tint = LinguaTertiary,
                                 modifier = Modifier.size(18.dp),
                             )
+                        } else {
+                            IconButton(
+                                onClick = { onSaveChunk(phrase, zh) },
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = "收进复习",
+                                    tint = LinguaSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }

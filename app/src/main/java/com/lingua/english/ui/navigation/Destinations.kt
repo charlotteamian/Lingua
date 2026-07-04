@@ -30,7 +30,10 @@ object Routes {
     const val COMPOSE_ENTRY = "compose_entry"
     const val MATERIAL_DETAIL = "material/{materialId}"
     const val PRACTICE = "practice/{materialId}"
+    const val CHAT_HISTORY = "chat_history"
+    const val CHAT_SESSION = "chat_session/{anchorId}"
 
     fun materialDetail(id: String) = "material/$id"
     fun practice(id: String) = "practice/$id"
+    fun chatSession(anchorId: String) = "chat_session/$anchorId"
 }

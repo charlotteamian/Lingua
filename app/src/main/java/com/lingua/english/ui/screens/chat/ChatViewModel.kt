@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -31,6 +32,27 @@ data class VoiceRecordState(
     val seconds: Int = 0,
 )
 
+/** 往期话题摘要 (对话页只显示当前话题, 旧话题归档到「往期」)。 */
+data class ChatSessionSummary(
+    val anchorId: String,
+    val startEpochMs: Long,
+    val count: Int,
+    val preview: String,
+)
+
+/** 按「新话题」分界把全部消息切成话题段, 最后一段 = 当前话题。 */
+internal fun sessionsOf(all: List<ChatMessageEntity>): List<List<ChatMessageEntity>> {
+    if (all.isEmpty()) return emptyList()
+    val sessions = mutableListOf(mutableListOf<ChatMessageEntity>())
+    all.forEach { message ->
+        if (message.contextBreak && sessions.last().isNotEmpty()) {
+            sessions.add(mutableListOf())
+        }
+        sessions.last().add(message)
+    }
+    return sessions
+}
+
 class ChatViewModel(
     private val chatRepo: ChatRepository,
     private val reviewRepo: ReviewRepository,
@@ -39,8 +61,31 @@ class ChatViewModel(
     private val recorder: VoiceRecorder,
 ) : ViewModel() {
 
-    val messages: StateFlow<List<ChatMessageEntity>> = chatRepo.messages
+    /** 当前话题的消息 (最后一个「新话题」分界之后)。对话页只显示这些。 */
+    val currentMessages: StateFlow<List<ChatMessageEntity>> = chatRepo.messages
+        .map { all -> sessionsOf(all).lastOrNull() ?: emptyList() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 往期话题摘要 (新→旧), 不含当前话题。 */
+    val pastSessions: StateFlow<List<ChatSessionSummary>> = chatRepo.messages
+        .map { all ->
+            sessionsOf(all).dropLast(1).map { session ->
+                ChatSessionSummary(
+                    anchorId = session.first().id,
+                    startEpochMs = session.first().createdAtEpochMs,
+                    count = session.size,
+                    preview = session.firstOrNull { it.content.isNotBlank() }?.content?.take(60)
+                        ?: "(语音消息)",
+                )
+            }.reversed()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 某个往期话题的完整消息 (anchorId = 该话题第一条消息)。 */
+    fun sessionMessages(anchorId: String): StateFlow<List<ChatMessageEntity>> =
+        chatRepo.messages
+            .map { all -> sessionsOf(all).firstOrNull { it.first().id == anchorId } ?: emptyList() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** 通话模式: 隐藏 Poppy 回复文字, 点按显示。只在自动朗读开着时生效, 避免「文字藏了又没声音」。 */
     val hideChatText: StateFlow<Boolean> =
@@ -83,13 +128,12 @@ class ChatViewModel(
         }
     }
 
-    /** 本次会话里已收藏的句子 (底部卡显示 ✓)。 */
-    private val _collectedSentences = MutableStateFlow<Set<String>>(emptySet())
-    val collectedSentences: StateFlow<Set<String>> = _collectedSentences
+    /** 已收藏文本 (归一化小写, DB 驱动)——句子/词块在任何入口重开都显示已收。 */
+    val savedTexts: StateFlow<Set<String>> = reviewRepo.savedTexts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    /** 收藏一句进复习 (出中文说英文)。翻译在后台跑, 不阻塞。 */
+    /** 收藏一句进复习 (出中文说英文)。先落库立刻见 ✓, 翻译后台补。 */
     fun collectSentence(sentence: String) {
-        _collectedSentences.value += sentence
         viewModelScope.launch {
             runCatching { reviewRepo.addSentence(sentence) }
         }
@@ -200,9 +244,22 @@ class ChatViewModel(
         private const val MAX_VOICE_SECONDS = 90
     }
 
-    /** 朗读时去掉 ✎/▸ 标记行的符号部分, 读起来自然。 */
+    /**
+     * 朗读预处理: ✎ 纠正行改成自然人的口吻 ("By the way, a more natural way…"),
+     * ▸ 词块行不读 (是给眼睛看的)。
+     */
     private fun stripMarkup(text: String): String =
-        text.lines().joinToString(" ") { line ->
-            line.removePrefix("✎ better:").substringBefore("▸ chunk:").trim()
-        }.trim()
+        text.lines().mapNotNull { raw ->
+            val line = raw.trim()
+            when {
+                line.isEmpty() -> null
+                line.startsWith("▸") -> null
+                line.startsWith("✎") -> {
+                    val body = line.removePrefix("✎").trim().let { it.substringAfter(":", it) }.trim()
+                    body.takeIf { it.isNotEmpty() }
+                        ?.let { "By the way, a more natural way to say that is: $it" }
+                }
+                else -> line
+            }
+        }.joinToString(" ")
 }

@@ -19,15 +19,25 @@ import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaSecondary
 import com.lingua.english.ui.theme.LinguaTertiary
 
-/** 把一段文本按句切开 (跳过 ✎/▸ 标记行), 供逐句收藏。 */
-fun splitSentences(text: String): List<String> =
-    text.lines()
-        .map { it.trim() }
+/**
+ * 把一段文本按句切开供逐句收藏。✎ 纠正行的英文说法放最前面 (最值得收);
+ * ▸ 词块行跳过 (有自己的 ＋ 收藏)。
+ */
+fun splitSentences(text: String): List<String> {
+    val lines = text.lines().map { it.trim() }
+    val corrections = lines.filter { it.startsWith("✎") }.mapNotNull { line ->
+        val body = line.removePrefix("✎").trim()
+        body.substringAfter(":", body).trim()
+            .takeIf { it.length >= 8 && it.any { ch -> ch.isLetter() } }
+    }
+    val prose = lines
         .filter { it.isNotEmpty() && !it.startsWith("✎") && !it.startsWith("▸") }
         .joinToString(" ")
         .split(Regex("(?<=[.!?])\\s+"))
         .map { it.trim() }
         .filter { it.length >= 8 && it.any { ch -> ch.isLetter() } }
+    return (corrections + prose).distinct()
+}
 
 /**
  * 收藏句子底部卡: 列出 [sourceText] 的每一句, 点一句收一句。
@@ -70,7 +80,7 @@ fun SentenceCollectSheet(
                 )
             }
             sentences.forEach { sentence ->
-                val done = sentence in collected
+                val done = sentence.trim().lowercase() in collected
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

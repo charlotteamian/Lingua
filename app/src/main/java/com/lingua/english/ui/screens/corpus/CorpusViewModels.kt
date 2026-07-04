@@ -87,12 +87,11 @@ class MaterialDetailViewModel(
     materialId: String,
 ) : ViewModel() {
 
-    /** 本次会话已收藏的句子 (底部卡显示 ✓)。 */
-    private val _collectedSentences = MutableStateFlow<Set<String>>(emptySet())
-    val collectedSentences: StateFlow<Set<String>> = _collectedSentences
+    /** 已收藏文本 (归一化小写, DB 驱动), 底部卡显示 ✓。 */
+    val savedTexts: StateFlow<Set<String>> = reviewRepo.savedTexts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     fun collectSentence(sentence: String) {
-        _collectedSentences.value += sentence
         viewModelScope.launch {
             runCatching { reviewRepo.addSentence(sentence) }
         }

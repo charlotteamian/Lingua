@@ -59,7 +59,7 @@ fun MaterialDetailScreen(
     val material by vm.material.collectAsStateWithLifecycle()
     val chunks by vm.chunks.collectAsStateWithLifecycle()
     val rate by vm.ttsRate.collectAsStateWithLifecycle()
-    val collectedSentences by vm.collectedSentences.collectAsStateWithLifecycle()
+    val savedTexts by vm.savedTexts.collectAsStateWithLifecycle()
     val lookup = LocalWordLookup.current
     var confirmDelete by remember { mutableStateOf(false) }
     var collectSource by remember { mutableStateOf<String?>(null) }
@@ -215,7 +215,7 @@ fun MaterialDetailScreen(
 
     SentenceCollectSheet(
         sourceText = collectSource,
-        collected = collectedSentences,
+        collected = savedTexts,
         onCollect = vm::collectSentence,
         onDismiss = { collectSource = null },
     )

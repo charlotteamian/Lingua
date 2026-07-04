@@ -11,12 +11,22 @@ import com.lingua.english.domain.ReviewGrade
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class ReviewSessionState(
     val showAnswer: Boolean = false,
     val doneThisSession: Int = 0,
+)
+
+/** 本次复习的范围设置: 类型多选 + 数量上限。 */
+data class ReviewFilter(
+    val kinds: Set<String> = setOf(
+        ChunkEntity.KIND_CHUNK, ChunkEntity.KIND_WORD, ChunkEntity.KIND_SENTENCE,
+    ),
+    val limit: Int? = 20,   // null = 全部
 )
 
 /** 句子卡「先说英文再对比」的状态。 */
@@ -35,7 +45,7 @@ class ReviewViewModel(
     private val coach: PronunciationCoach,
 ) : ViewModel() {
 
-    /** 到期队列是响应式的: 评完一张自动缩短, 永远显示队首。 */
+    /** 到期队列是响应式的: 评完一张自动缩短。 */
     val dueCards: StateFlow<List<ChunkEntity>> = reviewRepo.dueCards()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -44,6 +54,55 @@ class ReviewViewModel(
 
     private val _session = MutableStateFlow(ReviewSessionState())
     val session: StateFlow<ReviewSessionState> = _session
+
+    // ─── 复习会话: 先选范围/数量/类型再开始 ──────────────────
+
+    private val _filter = MutableStateFlow(ReviewFilter())
+    val filter: StateFlow<ReviewFilter> = _filter
+
+    /** 本次会话的卡片 id 快照; null = 未开始。 */
+    private val _sessionIds = MutableStateFlow<Set<String>?>(null)
+
+    val sessionActive: StateFlow<Boolean> = _sessionIds
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** 会话队列 = 到期卡 ∩ 快照, 评完一张自然缩短。 */
+    val sessionQueue: StateFlow<List<ChunkEntity>> =
+        combine(dueCards, _sessionIds) { due, ids ->
+            if (ids == null) emptyList() else due.filter { it.id in ids }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val sessionTotal: Int get() = _sessionIds.value?.size ?: 0
+
+    fun toggleKind(kind: String) {
+        val kinds = _filter.value.kinds
+        val next = if (kind in kinds) kinds - kind else kinds + kind
+        if (next.isNotEmpty()) _filter.value = _filter.value.copy(kinds = next)
+    }
+
+    fun setLimit(limit: Int?) {
+        _filter.value = _filter.value.copy(limit = limit)
+    }
+
+    /** 按当前筛选把到期卡快照成一次会话 (到期早的优先, 由 SRS 排序保证)。 */
+    fun startSession() {
+        val f = _filter.value
+        val picked = dueCards.value
+            .filter { it.kind in f.kinds }
+            .let { if (f.limit != null) it.take(f.limit) else it }
+        if (picked.isEmpty()) return
+        _sessionIds.value = picked.map { it.id }.toSet()
+        _session.value = ReviewSessionState()
+        _speak.value = SpeakCompareState()
+    }
+
+    fun endSession() {
+        _sessionIds.value = null
+        _session.value = ReviewSessionState()
+        _speak.value = SpeakCompareState()
+        coach.stopRecording()
+    }
 
     fun showAnswer(card: ChunkEntity) {
         _session.value = _session.value.copy(showAnswer = true)
