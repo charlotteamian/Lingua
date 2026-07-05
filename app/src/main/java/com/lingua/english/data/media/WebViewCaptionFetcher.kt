@@ -2,6 +2,8 @@ package com.lingua.english.data.media
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
@@ -11,6 +13,7 @@ import android.webkit.WebViewClient
 import com.lingua.english.data.ai.AiException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -29,6 +32,9 @@ import org.json.JSONObject
  * ② 同时触发页面里的真播放器加载字幕, shouldInterceptRequest 截获它自己发的
  *    带 pot 校验参数的字幕请求, 用这个地址页内再下一次;
  * ③ 都空手而归就把地址 (截获的优先) 交回 OkHttp 带 cookie 下载兜底。
+ *
+ * 注意: 这个 WebView 从不挂载到窗口, 所以调度一律用主线程 Handler——
+ * 未挂载 View 的 post/postDelayed 永远不会执行 (掉过一次的坑)。
  */
 class WebViewCaptionFetcher(private val context: Context) {
 
@@ -49,137 +55,144 @@ class WebViewCaptionFetcher(private val context: Context) {
 
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun fetch(videoId: String): RawCaptions = withContext(Dispatchers.Main) {
-        withTimeout(60_000) {
-            suspendCancellableCoroutine { cont ->
-                val done = AtomicBoolean(false)
-                val state = object {
-                    @Volatile var title = ""
-                    @Volatile var baseUrl = ""
-                    @Volatile var pottedUrl = ""
-                    @Volatile var pottedTried = false
-                }
-                // 预置同意 cookie, 避开欧盟出口 IP 的 consent 拦截页
-                runCatching {
-                    CookieManager.getInstance().setCookie("https://www.youtube.com", "SOCS=CAI")
-                }
-                val webView = WebView(context)
-
-                fun finish(block: () -> Unit) {
-                    if (done.compareAndSet(false, true)) {
-                        block()
-                        webView.post { runCatching { webView.destroy() } }
-                    }
-                }
-
-                webView.settings.javaScriptEnabled = true
-                webView.settings.domStorageEnabled = true
-                // 触发播放器加载字幕需要 JS 能自主起播
-                webView.settings.mediaPlaybackRequiresUserGesture = false
-                // 桌面 UA: 避免被重定向到 m.youtube.com (页面结构不同, 播放器数据出得晚)
-                webView.settings.userAgentString =
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-                webView.settings.useWideViewPort = true
-                runCatching {
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-                }
-                webView.addJavascriptInterface(object {
-                    @JavascriptInterface
-                    fun onTrack(payload: String) {
-                        val parsed = runCatching {
-                            json.decodeFromString(Track.serializer(), payload)
-                        }.getOrNull()
-                        if (parsed == null || parsed.baseUrl.isBlank()) {
-                            finish { cont.resumeWithException(AiException("字幕数据解析失败")) }
-                        } else {
-                            state.title = parsed.title
-                            state.baseUrl = parsed.baseUrl
-                        }
-                    }
-
-                    @JavascriptInterface
-                    fun onCaptions(text: String) {
-                        if (text.isNotBlank()) {
-                            finish {
-                                cont.resume(
-                                    RawCaptions(state.title, state.baseUrl, text, state.pottedUrl)
-                                )
-                            }
-                            return
-                        }
-                        if (state.pottedTried) {
-                            // 截获地址页内也下载失败, 把两个地址都交回 OkHttp 兜底
-                            finish {
-                                cont.resume(RawCaptions(state.title, state.baseUrl, "", state.pottedUrl))
-                            }
-                            return
-                        }
-                        // 裸地址页内下载空手而归 → 等播放器自己发字幕请求 (带 pot), 截到就再下一次
-                        fun poll(attempt: Int) {
-                            if (done.get()) return
-                            val potted = state.pottedUrl
-                            when {
-                                potted.isNotEmpty() -> {
-                                    state.pottedTried = true
-                                    runCatching {
-                                        webView.evaluateJavascript(
-                                            "window.__linguaDownload && __linguaDownload(${JSONObject.quote(potted)});",
-                                            null,
-                                        )
-                                    }
-                                    // 它的结果由下一次 onCaptions 收尾; 20s 没回音就强制收尾
-                                    webView.postDelayed({
-                                        if (!done.get()) finish {
-                                            cont.resume(RawCaptions(state.title, state.baseUrl, "", potted))
-                                        }
-                                    }, 20_000)
-                                }
-                                attempt < 16 -> webView.postDelayed({ poll(attempt + 1) }, 500)
-                                else -> finish {
-                                    cont.resume(RawCaptions(state.title, state.baseUrl, "", ""))
-                                }
-                            }
-                        }
-                        webView.post { poll(0) }
-                    }
-
-                    @JavascriptInterface
-                    fun onError(message: String) = finish {
-                        cont.resumeWithException(AiException(message.take(160)))
-                    }
-                }, "CapBridge")
-
-                webView.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, url: String) {
-                        view.evaluateJavascript(EXTRACT_JS.replace("%VID%", videoId), null)
-                    }
-
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        request: WebResourceRequest,
-                    ): WebResourceResponse? {
-                        val u = request.url?.toString().orEmpty()
-                        // 播放器自己发的字幕请求带 pot 参数 (我们页内 XHR 的没有), 只截它的
-                        if (u.contains("/api/timedtext") && u.contains("pot=") && state.pottedUrl.isEmpty()) {
-                            state.pottedUrl = u
-                        }
-                        return null
-                    }
-                }
-                cont.invokeOnCancellation {
-                    webView.post { runCatching { webView.destroy() } }
-                }
-                webView.loadUrl("https://www.youtube.com/watch?v=$videoId&hl=en")
-            }
+        try {
+            withTimeout(60_000) { fetchInner(videoId) }
+        } catch (e: TimeoutCancellationException) {
+            throw AiException("网页通道 60 秒内没走完 (页面加载慢或代理拥堵), 再试一次")
         }
     }
+
+    private suspend fun fetchInner(videoId: String): RawCaptions =
+        suspendCancellableCoroutine { cont ->
+            val done = AtomicBoolean(false)
+            val mainHandler = Handler(Looper.getMainLooper())
+            val state = object {
+                @Volatile var title = ""
+                @Volatile var baseUrl = ""
+                @Volatile var pottedUrl = ""
+                @Volatile var pottedTried = false
+            }
+            // 预置同意 cookie, 避开欧盟出口 IP 的 consent 拦截页
+            runCatching {
+                CookieManager.getInstance().setCookie("https://www.youtube.com", "SOCS=CAI")
+            }
+            val webView = WebView(context)
+
+            fun finish(block: () -> Unit) {
+                if (done.compareAndSet(false, true)) {
+                    block()
+                    mainHandler.post { runCatching { webView.destroy() } }
+                }
+            }
+
+            webView.settings.javaScriptEnabled = true
+            webView.settings.domStorageEnabled = true
+            // 触发播放器加载字幕需要 JS 能自主起播
+            webView.settings.mediaPlaybackRequiresUserGesture = false
+            // 桌面 UA: 避免被重定向到 m.youtube.com (页面结构不同, 播放器数据出得晚)
+            webView.settings.userAgentString =
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            webView.settings.useWideViewPort = true
+            runCatching {
+                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+            }
+            webView.addJavascriptInterface(object {
+                @JavascriptInterface
+                fun onTrack(payload: String) {
+                    val parsed = runCatching {
+                        json.decodeFromString(Track.serializer(), payload)
+                    }.getOrNull()
+                    if (parsed == null || parsed.baseUrl.isBlank()) {
+                        finish { cont.resumeWithException(AiException("字幕数据解析失败")) }
+                    } else {
+                        state.title = parsed.title
+                        state.baseUrl = parsed.baseUrl
+                    }
+                }
+
+                @JavascriptInterface
+                fun onCaptions(text: String) {
+                    if (text.isNotBlank()) {
+                        finish {
+                            cont.resume(
+                                RawCaptions(state.title, state.baseUrl, text, state.pottedUrl)
+                            )
+                        }
+                        return
+                    }
+                    if (state.pottedTried) {
+                        // 截获地址页内也下载失败, 把两个地址都交回 OkHttp 兜底
+                        finish {
+                            cont.resume(RawCaptions(state.title, state.baseUrl, "", state.pottedUrl))
+                        }
+                        return
+                    }
+                    // 裸地址页内下载空手而归 → 等播放器自己发字幕请求 (带 pot), 截到就再下一次
+                    fun poll(attempt: Int) {
+                        if (done.get()) return
+                        val potted = state.pottedUrl
+                        when {
+                            potted.isNotEmpty() -> {
+                                state.pottedTried = true
+                                runCatching {
+                                    webView.evaluateJavascript(
+                                        "window.__linguaDownload && __linguaDownload(${JSONObject.quote(potted)});",
+                                        null,
+                                    )
+                                }
+                                // 它的结果由下一次 onCaptions 收尾; 20s 没回音就强制收尾
+                                mainHandler.postDelayed({
+                                    if (!done.get()) finish {
+                                        cont.resume(RawCaptions(state.title, state.baseUrl, "", potted))
+                                    }
+                                }, 20_000)
+                            }
+                            attempt < 24 -> mainHandler.postDelayed({ poll(attempt + 1) }, 500)
+                            else -> finish {
+                                cont.resume(RawCaptions(state.title, state.baseUrl, "", ""))
+                            }
+                        }
+                    }
+                    mainHandler.post { poll(0) }
+                }
+
+                @JavascriptInterface
+                fun onError(message: String) = finish {
+                    cont.resumeWithException(AiException(message.take(160)))
+                }
+            }, "CapBridge")
+
+            webView.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, url: String) {
+                    view.evaluateJavascript(EXTRACT_JS.replace("%VID%", videoId), null)
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest,
+                ): WebResourceResponse? {
+                    val u = request.url?.toString().orEmpty()
+                    // 播放器自己发的字幕请求带 pot 参数 (我们页内 XHR 的没有), 只截它的
+                    if (u.contains("/api/timedtext") && u.contains("pot=") && state.pottedUrl.isEmpty()) {
+                        state.pottedUrl = u
+                    }
+                    return null
+                }
+            }
+            cont.invokeOnCancellation {
+                mainHandler.post { runCatching { webView.destroy() } }
+            }
+            webView.loadUrl("https://www.youtube.com/watch?v=$videoId&hl=en")
+        }
 
     companion object {
         /**
          * 页内脚本: ① 取 ytInitialPlayerResponse 的字幕轨 (等不到就用页面自己的
          * ytcfg 密钥调站内 player API); ② 选英文轨后先回传地址 (onTrack), 再触发
          * 真播放器加载字幕 (让它发出带 pot 的请求供 Kotlin 截获), 同时页内 XHR
-         * 直接下载字幕全文 (onCaptions)。报错附 host/标题便于远程诊断。
+         * 直接下载字幕全文 (onCaptions)。播放器触发会等到它就绪为止,
+         * 并把 <video> 一起静音 (光 player.mute 下早了不生效, 会漏声音)。
          */
         private val EXTRACT_JS = """
             (function(){
@@ -188,11 +201,15 @@ class WebViewCaptionFetcher(private val context: Context) {
               window.__linguaRan = true;
               var tries = 0;
               var apiTried = false;
+              var trigTries = 0;
               function fail(msg){
                 try { CapBridge.onError(msg + ' [' + location.host + ' · ' + (document.title||'').slice(0,40) + ']'); } catch(e) {}
               }
               function cfgGet(name){
                 try { return (window.ytcfg && ytcfg.get) ? ytcfg.get(name) : null; } catch(e) { return null; }
+              }
+              function muteVideo(){
+                try { var v = document.querySelector('video'); if (v) { v.muted = true; v.volume = 0; } } catch(e){}
               }
               function download(u){
                 u = u.replace(/([?&])fmt=[^&]*/, function(m, p1){ return p1 + 'fmt=json3'; });
@@ -207,14 +224,19 @@ class WebViewCaptionFetcher(private val context: Context) {
               }
               window.__linguaDownload = download;
               function triggerPlayer(){
-                try {
-                  var p = document.getElementById('movie_player');
-                  if (!p) return;
-                  try { p.mute && p.mute(); } catch(e){}
-                  try { p.loadModule && p.loadModule('captions'); } catch(e){}
-                  try { p.setOption && p.setOption('captions','track',{languageCode:'en'}); } catch(e){}
-                  try { p.playVideo && p.playVideo(); } catch(e){}
-                } catch(e){}
+                var p = document.getElementById('movie_player');
+                if (!p || !p.setOption) {
+                  if (++trigTries < 25) setTimeout(triggerPlayer, 800);
+                  return;
+                }
+                muteVideo();
+                try { p.mute && p.mute(); } catch(e){}
+                try { p.loadModule && p.loadModule('captions'); } catch(e){}
+                try { p.setOption('captions','track',{languageCode:'en'}); } catch(e){}
+                try { p.playVideo && p.playVideo(); } catch(e){}
+                muteVideo();
+                setTimeout(muteVideo, 300);
+                setTimeout(muteVideo, 1200);
               }
               function pickAndFetch(tracks, title){
                 var en = [];
