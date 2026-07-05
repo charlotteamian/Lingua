@@ -135,8 +135,8 @@ fun MediaPlayerScreen(vm: MediaPlayerViewModel, onBack: () -> Unit) {
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(lines.size, key = { it }) { index ->
                 val line = lines[index]
@@ -166,10 +166,12 @@ private fun YouTubePane(
     onWebView: (WebView) -> Unit,
 ) {
     var playerError by remember { mutableStateOf<String?>(null) }
+    // watch 页模式: 页面自带播放器 chrome, 窗口加高一档才能放下完整画框
+    var watchMode by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f),
+            .aspectRatio(if (watchMode) 16f / 10.5f else 16f / 9f),
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -189,7 +191,39 @@ private fun YouTubePane(
                         fellBack = true
                         post {
                             playerError = null
+                            watchMode = true
                             loadUrl("https://m.youtube.com/watch?v=$videoId")
+                        }
+                    }
+                    // 播放器的 ⤢ 全屏按钮: 把视频视图铺到整个 Activity 窗口上
+                    webChromeClient = object : android.webkit.WebChromeClient() {
+                        private var fullscreenView: android.view.View? = null
+
+                        override fun onShowCustomView(
+                            view: android.view.View,
+                            callback: CustomViewCallback,
+                        ) {
+                            if (fullscreenView != null) {
+                                callback.onCustomViewHidden()
+                                return
+                            }
+                            val decor = context.findActivity()?.window?.decorView
+                                as? android.widget.FrameLayout ?: return
+                            fullscreenView = view
+                            decor.addView(
+                                view,
+                                android.widget.FrameLayout.LayoutParams(
+                                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                                ),
+                            )
+                        }
+
+                        override fun onHideCustomView() {
+                            val decor = context.findActivity()?.window?.decorView
+                                as? android.widget.FrameLayout
+                            fullscreenView?.let { decor?.removeView(it) }
+                            fullscreenView = null
                         }
                     }
                     addJavascriptInterface(object {
@@ -257,7 +291,20 @@ private fun YouTubePane(
     }
 }
 
-/** watch 页播放模式的注入脚本: 同名 seekTo + 每 500ms 回报 video.currentTime。 */
+/** WebView 所在的 Activity (全屏视图要挂到它的 decorView 上)。 */
+private fun android.content.Context.findActivity(): android.app.Activity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is android.app.Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+/**
+ * watch 页播放模式的注入脚本: 同名 seekTo + 每 500ms 回报 video.currentTime;
+ * 藏掉页面顶部的 YouTube 横幅 (logo/打开应用/搜索) 让视频顶到窗口顶部。
+ */
 private val WATCH_PAGE_JS = """
     (function(){
       window.seekTo = function(s){ var v=document.querySelector('video'); if(v){ v.currentTime=s; v.play(); } };
@@ -265,6 +312,17 @@ private val WATCH_PAGE_JS = """
         window.__linguaPoll = setInterval(function(){
           try { var v=document.querySelector('video'); if(v) Bridge.postTime(v.currentTime); } catch(e){}
         }, 500);
+      }
+      if (!document.getElementById('__linguaCss')) {
+        var st = document.createElement('style');
+        st.id = '__linguaCss';
+        // masthead = 顶栏; pivot bar = 底部导航; 都藏掉, 只留播放器
+        st.textContent = 'ytm-mobile-topbar-renderer,.mobile-topbar-header,ytm-pivot-bar-renderer,' +
+          'header,.mobile-topbar-header-content{display:none!important;}' +
+          'ytm-watch,#player,.player-container{margin-top:0!important;top:0!important;}' +
+          'body{background:#06080f!important;}';
+        (document.head||document.documentElement).appendChild(st);
+        window.scrollTo(0,0);
       }
     })();
 """.trimIndent()
@@ -359,30 +417,30 @@ private fun TranscriptRow(
                 }
             )
             .clickable(onClick = onSelect)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Text(
                 "%d:%02d".format((line.s / 60).toInt(), (line.s % 60).toInt()),
                 color = LinguaOnSurfaceMuted.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(top = 4.dp, end = 8.dp),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(top = 3.dp, end = 8.dp),
             )
             TappableText(
                 line.t,
                 onWordTap = onWordTap,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = if (isCurrent) MaterialTheme.colorScheme.onSurface else LinguaOnSurfaceMuted,
                 modifier = Modifier.weight(1f),
             )
             // 整行操作的把手: 正文每个单词都是查词热区, 空白难点中, 必须有明确入口
-            IconButton(onClick = onSelect, modifier = Modifier.size(28.dp)) {
+            IconButton(onClick = onSelect, modifier = Modifier.size(24.dp)) {
                 Icon(
                     Icons.Filled.MoreHoriz,
                     contentDescription = "整句操作",
                     tint = LinguaOnSurfaceMuted.copy(alpha = 0.7f),
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
