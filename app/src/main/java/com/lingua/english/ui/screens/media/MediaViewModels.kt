@@ -227,7 +227,7 @@ class MediaPlayerViewModel(
                     turns = listOf(
                         ChatTurn(
                             "user",
-                            "用中文简洁解释这句英文的意思和值得学的表达 (2-3 句话, 别啰嗦):\n${line.t}",
+                            "先给这句英文的整句中文翻译, 再用 1-2 句点出值得学的表达 (别啰嗦):\n${line.t}",
                         )
                     ),
                 )

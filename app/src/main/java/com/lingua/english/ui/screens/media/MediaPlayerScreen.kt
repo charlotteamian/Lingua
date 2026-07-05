@@ -6,6 +6,7 @@ import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -163,41 +165,72 @@ private fun YouTubePane(
     onTime: (Double) -> Unit,
     onWebView: (WebView) -> Unit,
 ) {
-    AndroidView(
+    var playerError by remember { mutableStateOf<String?>(null) }
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f),
-        factory = { context ->
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                addJavascriptInterface(object {
-                    @JavascriptInterface
-                    fun postTime(t: Double) = onTime(t)
-                }, "Bridge")
-                loadDataWithBaseURL(
-                    "https://www.youtube.com",
-                    """
-                    <html><body style="margin:0;background:#06080f;">
-                    <div id="p"></div>
-                    <script src="https://www.youtube.com/iframe_api"></script>
-                    <script>
-                    var player;
-                    function onYouTubeIframeAPIReady(){
-                      player=new YT.Player('p',{videoId:'$videoId',width:'100%',height:'100%',
-                        playerVars:{playsinline:1},
-                        events:{onReady:function(){
-                          setInterval(function(){try{Bridge.postTime(player.getCurrentTime())}catch(e){}},500);
-                        }}});
-                    }
-                    function seekTo(s){ if(player){player.seekTo(s,true); player.playVideo();} }
-                    </script></body></html>
-                    """.trimIndent(),
-                    "text/html", "utf-8", null,
-                )
-                onWebView(this)
-            }
-        },
-    )
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    // 没有 DOM 存储 YouTube 播放器会直接黑屏
+                    settings.domStorageEnabled = true
+                    // 允许 JS 起播: 「从这句播」是原生按钮发起的, 不算 WebView 内手势
+                    settings.mediaPlaybackRequiresUserGesture = false
+                    addJavascriptInterface(object {
+                        @JavascriptInterface
+                        fun postTime(t: Double) = onTime(t)
+
+                        @JavascriptInterface
+                        fun postError(code: Int) {
+                            playerError = when (code) {
+                                101, 150 -> "视频作者关闭了站外播放, 视频要去 YouTube 看; 下面的字幕照常能学"
+                                100 -> "视频不存在或已删除"
+                                else -> "播放器加载失败 (code $code), 退出重进试试"
+                            }
+                        }
+                    }, "Bridge")
+                    loadDataWithBaseURL(
+                        "https://www.youtube.com",
+                        """
+                        <html><body style="margin:0;background:#06080f;">
+                        <div id="p"></div>
+                        <script src="https://www.youtube.com/iframe_api"></script>
+                        <script>
+                        var player;
+                        function onYouTubeIframeAPIReady(){
+                          player=new YT.Player('p',{videoId:'$videoId',width:'100%',height:'100%',
+                            playerVars:{playsinline:1},
+                            events:{
+                              onReady:function(){
+                                setInterval(function(){try{Bridge.postTime(player.getCurrentTime())}catch(e){}},500);
+                              },
+                              onError:function(e){try{Bridge.postError(e.data)}catch(err){}}
+                            }});
+                        }
+                        function seekTo(s){ if(player){player.seekTo(s,true); player.playVideo();} }
+                        </script></body></html>
+                        """.trimIndent(),
+                        "text/html", "utf-8", null,
+                    )
+                    onWebView(this)
+                }
+            },
+        )
+        playerError?.let { message ->
+            Text(
+                message,
+                color = LinguaOnSurfaceMuted,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -307,6 +340,15 @@ private fun TranscriptRow(
                 color = if (isCurrent) MaterialTheme.colorScheme.onSurface else LinguaOnSurfaceMuted,
                 modifier = Modifier.weight(1f),
             )
+            // 整行操作的把手: 正文每个单词都是查词热区, 空白难点中, 必须有明确入口
+            IconButton(onClick = onSelect, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Filled.MoreHoriz,
+                    contentDescription = "整句操作",
+                    tint = LinguaOnSurfaceMuted.copy(alpha = 0.7f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
         if (isSelected) {
             Row {
@@ -315,7 +357,7 @@ private fun TranscriptRow(
                     Text(if (saved) "✓ 已收" else "收藏", color = if (saved) LinguaTertiary else MaterialTheme.colorScheme.primary)
                 }
                 TextButton(onClick = { if (explanation != null && explanation != "…") onRetryExplain() else onExplain() }) {
-                    Text("解释")
+                    Text("翻译")
                 }
             }
         }
