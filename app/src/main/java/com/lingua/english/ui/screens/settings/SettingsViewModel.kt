@@ -37,7 +37,8 @@ class SettingsViewModel(
     val ttsRate = flowOf(prefs.ttsRate, 0.9f)
     val ttsEngine = flowOf(prefs.ttsEngine, "system")
     val ttsVoice = flowOf(prefs.ttsVoice, "Kore")
-    val ttsModel = flowOf(prefs.ttsModel, "gemini-2.5-flash-preview-tts")
+    val ttsModel = flowOf(prefs.ttsModel, "gemini-3.1-flash-tts")
+    val liveModel = flowOf(prefs.liveModel, "gemini-3.1-flash-live-preview")
     val ttsStyle = flowOf(prefs.ttsStyle, "")
     val autoRead = flowOf(prefs.autoReadReplies, false)
     val hideChatText = flowOf(prefs.hideChatText, false)
@@ -77,6 +78,7 @@ class SettingsViewModel(
     fun setTtsEngine(engine: String) = viewModelScope.launch { prefs.setTtsEngine(engine) }
     fun setTtsVoice(voice: String) = viewModelScope.launch { prefs.setTtsVoice(voice) }
     fun setTtsModel(model: String) = viewModelScope.launch { prefs.setTtsModel(model) }
+    fun setLiveModel(model: String) = viewModelScope.launch { prefs.setLiveModel(model) }
     fun setTtsStyle(style: String) = viewModelScope.launch { prefs.setTtsStyle(style) }
     fun setAutoRead(enabled: Boolean) = viewModelScope.launch { prefs.setAutoReadReplies(enabled) }
     fun setHideChatText(enabled: Boolean) = viewModelScope.launch { prefs.setHideChatText(enabled) }

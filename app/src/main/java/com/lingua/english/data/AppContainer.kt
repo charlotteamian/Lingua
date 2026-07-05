@@ -2,6 +2,7 @@ package com.lingua.english.data
 
 import android.content.Context
 import com.lingua.english.data.ai.ChatApiClient
+import com.lingua.english.data.ai.GeminiLiveClient
 import com.lingua.english.data.dict.DictDatabaseHelper
 import com.lingua.english.data.dict.DictRepository
 import com.lingua.english.data.dict.OnlineDictClient
@@ -36,6 +37,9 @@ class AppContainer(context: Context) {
     val prefs: SettingsPreferences by lazy { SettingsPreferences(appContext) }
 
     val chatApiClient: ChatApiClient by lazy { ChatApiClient(prefs) }
+
+    /** Gemini Live 实时语音通话 (端到端语音, 对话页「通话」按钮)。 */
+    val geminiLive: GeminiLiveClient by lazy { GeminiLiveClient(prefs, appScope) }
 
     val dictRepository: DictRepository by lazy {
         DictRepository(DictDatabaseHelper(appContext), OnlineDictClient())

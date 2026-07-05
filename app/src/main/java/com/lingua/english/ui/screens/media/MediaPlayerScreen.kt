@@ -180,19 +180,43 @@ private fun YouTubePane(
                     settings.domStorageEnabled = true
                     // 允许 JS 起播: 「从这句播」是原生按钮发起的, 不算 WebView 内手势
                     settings.mediaPlaybackRequiresUserGesture = false
+                    // 去掉 "; wv" WebView 标记: 嵌入播放器风控会把 WebView 当机器人 (code 152/153)
+                    settings.userAgentString = settings.userAgentString.replace("; wv", "")
+                    var fellBack = false
+
+                    fun fallbackToWatchPage() {
+                        if (fellBack) return
+                        fellBack = true
+                        post {
+                            playerError = null
+                            loadUrl("https://m.youtube.com/watch?v=$videoId")
+                        }
+                    }
                     addJavascriptInterface(object {
                         @JavascriptInterface
                         fun postTime(t: Double) = onTime(t)
 
                         @JavascriptInterface
                         fun postError(code: Int) {
-                            playerError = when (code) {
-                                101, 150 -> "视频作者关闭了站外播放, 视频要去 YouTube 看; 下面的字幕照常能学"
-                                100 -> "视频不存在或已删除"
-                                else -> "播放器加载失败 (code $code), 退出重进试试"
+                            if (code != 100 && !fellBack) {
+                                // 嵌入被拒 (101/150/152/153…): 换真 watch 页播放, 这条通道已验证可用
+                                fallbackToWatchPage()
+                            } else {
+                                playerError = when (code) {
+                                    100 -> "视频不存在或已删除"
+                                    else -> "播放器加载失败 (code $code), 退出重进试试"
+                                }
                             }
                         }
                     }, "Bridge")
+                    webViewClient = object : android.webkit.WebViewClient() {
+                        override fun onPageFinished(view: WebView, url: String) {
+                            // watch 页模式: 挂全局 seekTo + 进度轮询 (和 iframe 模式同名接口, 调用方无感)
+                            if (url.contains("youtube.com/watch")) {
+                                view.evaluateJavascript(WATCH_PAGE_JS, null)
+                            }
+                        }
+                    }
                     loadDataWithBaseURL(
                         "https://www.youtube.com",
                         """
@@ -232,6 +256,18 @@ private fun YouTubePane(
         }
     }
 }
+
+/** watch 页播放模式的注入脚本: 同名 seekTo + 每 500ms 回报 video.currentTime。 */
+private val WATCH_PAGE_JS = """
+    (function(){
+      window.seekTo = function(s){ var v=document.querySelector('video'); if(v){ v.currentTime=s; v.play(); } };
+      if (!window.__linguaPoll) {
+        window.__linguaPoll = setInterval(function(){
+          try { var v=document.querySelector('video'); if(v) Bridge.postTime(v.currentTime); } catch(e){}
+        }, 500);
+      }
+    })();
+""".trimIndent()
 
 @Composable
 private fun AudioControls(

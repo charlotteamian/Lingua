@@ -63,6 +63,7 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     val ttsEngine by vm.ttsEngine.collectAsStateWithLifecycle()
     val ttsVoice by vm.ttsVoice.collectAsStateWithLifecycle()
     val ttsModel by vm.ttsModel.collectAsStateWithLifecycle()
+    val liveModel by vm.liveModel.collectAsStateWithLifecycle()
     val ttsStyle by vm.ttsStyle.collectAsStateWithLifecycle()
     val autoRead by vm.autoRead.collectAsStateWithLifecycle()
     val hideChatText by vm.hideChatText.collectAsStateWithLifecycle()
@@ -78,6 +79,7 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     var keyInput by remember(key) { mutableStateOf(key) }
     var modelInput by remember(model) { mutableStateOf(model) }
     var ttsModelInput by remember(ttsModel) { mutableStateOf(ttsModel) }
+    var liveModelInput by remember(liveModel) { mutableStateOf(liveModel) }
     var profileInput by remember(profile) { mutableStateOf(profile) }
     // 空 = 用默认; 展示时预填默认文本, 在此基础上改
     var ttsStyleInput by remember(ttsStyle) {
@@ -254,6 +256,23 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
         item {
             LinguaCard {
                 Text("对话", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "模型分工: 文字/讲解用上面「AI 对话服务」的模型; 「通话」按钮用下面的 Live 模型端到端说话 (不走转文字再合成, 延迟低); 朗读用「英音发音」卡里的语音模型。",
+                    color = LinguaOnSurfaceMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = liveModelInput,
+                    onValueChange = { liveModelInput = it; vm.setLiveModel(it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("实时通话模型 (Gemini Live)") },
+                    singleLine = true,
+                )
+                Text(
+                    "通话接不通且报模型名错误时, 把官方文档里的 Live 模型名贴到这里。",
+                    color = LinguaOnSurfaceMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("自动朗读 Poppy 的回复", style = MaterialTheme.typography.bodyLarge)

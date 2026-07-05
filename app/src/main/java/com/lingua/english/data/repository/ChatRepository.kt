@@ -101,6 +101,31 @@ class ChatRepository(
         return result.reply
     }
 
+    /** 实时语音通话的一轮转写落库 (音频不留存, Live 是流式的)。 */
+    suspend fun addLiveExchange(userText: String, replyText: String) {
+        if (userText.isBlank() && replyText.isBlank()) return
+        val now = System.currentTimeMillis()
+        chatDao.insert(
+            ChatMessageEntity(
+                id = UUID.randomUUID().toString(),
+                role = "user",
+                content = userText.trim().ifEmpty { "(语音)" },
+                createdAtEpochMs = now,
+            )
+        )
+        bumpDailyChat()
+        if (replyText.isNotBlank()) {
+            chatDao.insert(
+                ChatMessageEntity(
+                    id = UUID.randomUUID().toString(),
+                    role = "assistant",
+                    content = replyText.trim(),
+                    createdAtEpochMs = now + 1,
+                )
+            )
+        }
+    }
+
     suspend fun clearAll() {
         chatDao.clearAll()
         runCatching { audioDir.deleteRecursively() }

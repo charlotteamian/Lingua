@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
@@ -53,6 +54,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lingua.english.data.ai.LivePhase
+import com.lingua.english.data.ai.LiveUiState
 import com.lingua.english.data.local.entity.ChatMessageEntity
 import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.components.LocalWordLookup
@@ -70,6 +73,7 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
     val sendState by vm.sendState.collectAsStateWithLifecycle()
     val hideText by vm.hideChatText.collectAsStateWithLifecycle()
     val voice by vm.voice.collectAsStateWithLifecycle()
+    val liveState by vm.liveState.collectAsStateWithLifecycle()
     val playingVoice by vm.playingVoice.collectAsStateWithLifecycle()
     val savedTexts by vm.savedTexts.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -85,6 +89,11 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) vm.startVoice()
+    }
+    val livePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) vm.startLive()
     }
 
     LaunchedEffect(messages.size, sendState.sending) {
@@ -155,7 +164,19 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (voice.recording) {
+        if (liveState.phase == LivePhase.IDLE) {
+            liveState.error?.let { error ->
+                Text(
+                    error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+        }
+        if (liveState.phase != LivePhase.IDLE) {
+            LiveCallBar(state = liveState, onHangUp = vm::stopLive)
+        } else if (voice.recording) {
             // 录音条: 想说多久说多久, 停顿不会被掐断
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -176,6 +197,22 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
+                IconButton(
+                    onClick = {
+                        val granted = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (granted) vm.startLive()
+                        else livePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    enabled = !sendState.sending,
+                ) {
+                    Icon(
+                        Icons.Filled.Call,
+                        contentDescription = "和 Poppy 实时通话",
+                        tint = LinguaTertiary,
+                    )
+                }
                 IconButton(
                     onClick = {
                         val granted = ContextCompat.checkSelfPermission(
@@ -225,6 +262,43 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
         onCollect = vm::collectSentence,
         onDismiss = { collectSource = null },
     )
+}
+
+/** 实时通话条: 状态 + 实时转写一行 + 挂断。转写完整版每轮结束进聊天记录。 */
+@Composable
+private fun LiveCallBar(state: LiveUiState, onHangUp: () -> Unit) {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Call,
+            contentDescription = null,
+            tint = if (state.speaking) LinguaSecondary else LinguaTertiary,
+        )
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+            Text(
+                when {
+                    state.phase == LivePhase.CONNECTING -> "接通中…"
+                    state.speaking -> "Poppy 说话中 · 直接开口可打断"
+                    else -> "在听 · 开口说英文吧"
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+            )
+            val partial = state.modelPartial.ifEmpty { state.userPartial }
+            if (partial.isNotEmpty()) {
+                Text(
+                    partial,
+                    color = LinguaOnSurfaceMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Button(onClick = onHangUp) { Text("挂断") }
+    }
 }
 
 @Composable

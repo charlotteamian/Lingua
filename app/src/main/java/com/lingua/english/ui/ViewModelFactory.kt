@@ -25,7 +25,7 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
         modelClass.isAssignableFrom(ChatViewModel::class.java) ->
             ChatViewModel(
                 container.chatRepository, container.reviewRepository, container.tts,
-                container.prefs, container.voiceRecorder,
+                container.prefs, container.voiceRecorder, container.geminiLive,
             ) as T
 
         modelClass.isAssignableFrom(CorpusViewModel::class.java) ->

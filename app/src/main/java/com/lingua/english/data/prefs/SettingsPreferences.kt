@@ -49,9 +49,13 @@ class SettingsPreferences(context: Context) {
     val ttsVoice: Flow<String> = ds.data.map { it[KEY_TTS_VOICE] ?: "Kore" }
     suspend fun setTtsVoice(voice: String) = ds.edit { it[KEY_TTS_VOICE] = voice }
 
-    /** Gemini TTS 模型, 出了新版直接改这里。 */
-    val ttsModel: Flow<String> = ds.data.map { it[KEY_TTS_MODEL] ?: "gemini-2.5-flash-preview-tts" }
+    /** Gemini TTS 模型 (语料/单词朗读), 出了新版直接改这里。 */
+    val ttsModel: Flow<String> = ds.data.map { it[KEY_TTS_MODEL] ?: "gemini-3.1-flash-tts" }
     suspend fun setTtsModel(model: String) = ds.edit { it[KEY_TTS_MODEL] = model }
+
+    /** Gemini Live 实时语音对话模型 (端到端, 不走 STT/TTS 拼接)。 */
+    val liveModel: Flow<String> = ds.data.map { it[KEY_LIVE_MODEL] ?: "gemini-3.1-flash-live-preview" }
+    suspend fun setLiveModel(model: String) = ds.edit { it[KEY_LIVE_MODEL] = model }
 
     /** 云端语音的风格/口音指令; 空 = 用内置默认 (中性 RP)。 */
     val ttsStyle: Flow<String> = ds.data.map { it[KEY_TTS_STYLE] ?: "" }
@@ -90,6 +94,7 @@ class SettingsPreferences(context: Context) {
         private val KEY_TTS_ENGINE = stringPreferencesKey("tts_engine")
         private val KEY_TTS_VOICE = stringPreferencesKey("tts_voice")
         private val KEY_TTS_MODEL = stringPreferencesKey("tts_model")
+        private val KEY_LIVE_MODEL = stringPreferencesKey("live_model")
         private val KEY_AUTO_READ = booleanPreferencesKey("auto_read_replies")
         private val KEY_PRON_RULES = stringPreferencesKey("pron_rules")
         private val KEY_TTS_STYLE = stringPreferencesKey("tts_style")

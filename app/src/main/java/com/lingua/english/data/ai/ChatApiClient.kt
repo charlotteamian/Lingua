@@ -41,7 +41,7 @@ object AiApiPresets {
         AiApiPreset("moonshot", "Kimi", "https://api.moonshot.cn/v1", AiApiDialect.OPENAI, "kimi-latest"),
         AiApiPreset("qwen", "通义千问", "https://dashscope.aliyuncs.com/compatible-mode/v1", AiApiDialect.OPENAI, "qwen-plus"),
         AiApiPreset("zhipu", "智谱", "https://open.bigmodel.cn/api/paas/v4", AiApiDialect.OPENAI, "glm-4.6"),
-        AiApiPreset("gemini", "Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", AiApiDialect.OPENAI, "gemini-2.5-flash"),
+        AiApiPreset("gemini", "Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", AiApiDialect.OPENAI, "gemini-3.5-flash"),
         AiApiPreset("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", AiApiDialect.OPENAI, "anthropic/claude-sonnet-4.5"),
         AiApiPreset("custom", "自定义", "", AiApiDialect.OPENAI, ""),
     )

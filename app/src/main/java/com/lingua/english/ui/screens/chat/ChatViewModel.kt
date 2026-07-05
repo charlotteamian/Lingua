@@ -3,6 +3,9 @@ package com.lingua.english.ui.screens.chat
 import android.media.MediaPlayer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lingua.english.data.ai.GeminiLiveClient
+import com.lingua.english.data.ai.LiveUiState
+import com.lingua.english.data.ai.Prompts
 import com.lingua.english.data.local.entity.ChatMessageEntity
 import com.lingua.english.data.local.entity.ChunkEntity
 import com.lingua.english.data.prefs.SettingsPreferences
@@ -59,6 +62,7 @@ class ChatViewModel(
     private val tts: TtsProvider,
     private val prefs: SettingsPreferences,
     private val recorder: VoiceRecorder,
+    private val live: GeminiLiveClient,
 ) : ViewModel() {
 
     /** 当前话题的消息 (最后一个「新话题」分界之后)。对话页只显示这些。 */
@@ -138,6 +142,26 @@ class ChatViewModel(
             runCatching { reviewRepo.addSentence(sentence) }
         }
     }
+
+    // ─── 实时语音通话 (Gemini Live, 端到端) ─────────────────
+
+    val liveState: StateFlow<LiveUiState> = live.state
+
+    fun startLive() {
+        tts.stop()
+        stopVoicePlayback()
+        viewModelScope.launch {
+            val system = Prompts.liveTutorSystem(
+                profile = prefs.learnerProfile.first(),
+                levelId = prefs.learnerLevel.first(),
+            )
+            live.start(system) { user, reply ->
+                viewModelScope.launch { runCatching { chatRepo.addLiveExchange(user, reply) } }
+            }
+        }
+    }
+
+    fun stopLive() = live.stop()
 
     // ─── 语音消息 ────────────────────────────────────────────
 
@@ -238,6 +262,7 @@ class ChatViewModel(
         ticker?.cancel()
         recorder.cancel()
         stopVoicePlayback()
+        live.stop()
     }
 
     companion object {
