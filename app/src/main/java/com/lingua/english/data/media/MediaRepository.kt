@@ -79,7 +79,23 @@ class MediaRepository(
                     "字幕拉取失败——直连: ${direct.message?.take(80)}; 网页通道: ${web.message?.take(80)}"
                 )
             }
-            captions.fetchFromBaseUrl(videoId, raw.title.ifBlank { videoId }, raw.baseUrl)
+            val title = raw.title.ifBlank { videoId }
+            if (raw.captionJson.isNotBlank()) {
+                captions.parseJson3(videoId, title, raw.captionJson)
+            } else {
+                // 页内没下载成: OkHttp 带 cookie 下载, 先试截获的播放器字幕地址 (带 pot), 再试裸地址
+                var lastError: Throwable? = null
+                listOf(raw.pottedUrl, raw.baseUrl).filter { it.isNotBlank() }.distinct()
+                    .firstNotNullOfOrNull { u ->
+                        runCatching { captions.fetchFromBaseUrl(videoId, title, u) }
+                            .onFailure { lastError = it }
+                            .getOrNull()
+                    }
+                    ?: throw AiException(
+                        "字幕轨已拿到, 但下载被拒 (${lastError?.message?.take(100) ?: "未知"})。" +
+                            "多试一两次, 或换个 Clash 节点再试。"
+                    )
+            }
         }
         val id = UUID.randomUUID().toString()
         withContext(Dispatchers.IO) { saveTranscript(id, result.lines) }

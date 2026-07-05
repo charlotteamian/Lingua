@@ -124,6 +124,7 @@ class YouTubeCaptionClient {
 
     /** json3 字幕文本 → 合并成句。WebView 兜底通道也用这个。 */
     fun parseJson3(videoId: String, title: String, captionJson: String): CaptionResult {
+        if (captionJson.isBlank()) error("字幕请求返回了空内容 (YouTube 要求播放器令牌)")
         val events = json.parseToJsonElement(captionJson).jsonObject["events"]?.jsonArray
             ?: error("字幕内容解析失败")
         val raw = events.mapNotNull { event ->
@@ -159,9 +160,13 @@ class YouTubeCaptionClient {
         return out
     }
 
-    /** WebView 通道拿到字幕轨地址后, 由这里带登录 cookie 下载 (页内 fetch 在部分代理下会被掐)。 */
-    suspend fun fetchFromBaseUrl(videoId: String, title: String, baseUrl: String): CaptionResult =
-        withContext(Dispatchers.IO) { parseJson3(videoId, title, get("$baseUrl&fmt=json3")) }
+    /** WebView 通道拿到字幕轨地址后, 由这里带登录 cookie 下载。地址可能已含 fmt/pot 参数。 */
+    suspend fun fetchFromBaseUrl(videoId: String, title: String, url: String): CaptionResult =
+        withContext(Dispatchers.IO) {
+            val u = if (url.contains("fmt=")) url.replace(Regex("fmt=[^&]*"), "fmt=json3")
+            else "$url&fmt=json3"
+            parseJson3(videoId, title, get(u))
+        }
 
     private fun get(url: String): String {
         val builder = Request.Builder()
@@ -171,6 +176,7 @@ class YouTubeCaptionClient {
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             )
             .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Referer", "https://www.youtube.com/")
         // 用户在 app 内登录过 YouTube 的话带上 cookie: 风控 IP 上登录态是放行的关键
         runCatching {
             android.webkit.CookieManager.getInstance().getCookie(url)
