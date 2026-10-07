@@ -10,6 +10,7 @@ plugins {
 val githubBuildNumber = providers.gradleProperty("linguaBuildNumber")
     .map { it.toInt() }
     .orNull
+val githubDebugKeystore = providers.gradleProperty("linguaDebugKeystore").orNull
 
 android {
     namespace = "com.lingua.english"
@@ -24,6 +25,17 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            githubDebugKeystore?.let {
+                storeFile = file(it)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {

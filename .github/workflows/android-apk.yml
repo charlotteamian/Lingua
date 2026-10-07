@@ -53,6 +53,7 @@ jobs:
           install -d -m 700 "$HOME/.android"
           printf '%s' "$LINGUA_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
           chmod 600 "$HOME/.android/debug.keystore"
+          echo "ORG_GRADLE_PROJECT_linguaDebugKeystore=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
 
       - name: Test, lint and build APK
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug -PlinguaBuildNumber="$GITHUB_RUN_NUMBER" --no-daemon --console=plain
@@ -69,6 +70,7 @@ jobs:
           lingua_expected_cert="$(tr -d '[:space:]' < ci/debug-signing-cert.sha256)"
           lingua_actual_cert="$(awk -F': ' '/^Signer #1 certificate SHA-256 digest:/ {print $2}' "$lingua_output/signature.txt")"
           if [[ "$lingua_actual_cert" != "$lingua_expected_cert" ]]; then
+            echo "Expected certificate: $lingua_expected_cert; actual certificate: $lingua_actual_cert"
             echo '::error::APK signing certificate does not match the original Lingua debug certificate.'
             exit 1
           fi
