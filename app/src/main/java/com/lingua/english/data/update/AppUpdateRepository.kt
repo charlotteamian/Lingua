@@ -28,7 +28,7 @@ class AppUpdateRepository(
         withContext(Dispatchers.IO) {
             val directory = File(context.cacheDir, "updates").apply { mkdirs() }
             // Keep the file name under our control, rather than using a server-supplied path.
-            val part = File(directory, "update.partial.apk")
+            val part = File.createTempFile("update-", ".partial.apk", directory)
             val target = File(directory, "Lingua-${update.manifest.versionCode}.apk")
             val coroutine = currentCoroutineContext()
             try {

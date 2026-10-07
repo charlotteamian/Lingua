@@ -133,7 +133,7 @@ jobs:
           lingua_version="$(jq -r '.versionName' update-package/build-info.json)"
           lingua_code="$(jq -r '.versionCode' update-package/build-info.json)"
           lingua_latest='true'
-          lingua_previous_tag="$(gh api "repos/$GH_REPO/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          lingua_previous_tag="$(gh release list --exclude-drafts --exclude-pre-releases --json isLatest,tagName --jq '.[] | select(.isLatest) | .tagName')"
           if [[ -n "$lingua_previous_tag" ]]; then
             mkdir -p previous-update
             gh release download "$lingua_previous_tag" --pattern build-info.json --dir previous-update
