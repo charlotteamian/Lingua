@@ -74,11 +74,14 @@ class MediaRepository(
         val videoId = captions.extractVideoId(url)
             ?: throw AiException("这不像是 YouTube 链接, 检查一下。")
         val result = runCatching { captions.fetch(videoId) }.getOrElse { direct ->
-            val raw = runCatching { webFetcher.fetch(videoId) }.getOrElse { web ->
-                throw AiException(
-                    "字幕拉取失败——直连: ${direct.message?.take(80)}; 网页通道: ${web.message?.take(80)}"
-                )
-            }
+            // 网页通道对页面加载时机敏感, 偶发失败自动再试一次再报错
+            val raw = runCatching { webFetcher.fetch(videoId) }
+                .recoverCatching { webFetcher.fetch(videoId) }
+                .getOrElse { web ->
+                    throw AiException(
+                        "字幕拉取失败——直连: ${direct.message?.take(80)}; 网页通道: ${web.message?.take(80)}"
+                    )
+                }
             val title = raw.title.ifBlank { videoId }
             if (raw.captionJson.isNotBlank()) {
                 captions.parseJson3(videoId, title, raw.captionJson)

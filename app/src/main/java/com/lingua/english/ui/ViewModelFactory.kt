@@ -12,6 +12,7 @@ import com.lingua.english.ui.screens.media.MediaPlayerViewModel
 import com.lingua.english.ui.screens.practice.PronunciationViewModel
 import com.lingua.english.ui.screens.review.ReviewViewModel
 import com.lingua.english.ui.screens.settings.SettingsViewModel
+import com.lingua.english.ui.screens.stats.StatsViewModel
 import com.lingua.english.ui.screens.today.TodayViewModel
 
 /** 手摇 VM 工厂 (和 Vita 同风格)。参数化的 MaterialDetailViewModel 用 [materialDetail] 单独造。 */
@@ -45,6 +46,9 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
                 container.prefs, container.chatApiClient, container.chatRepository,
                 container.dictRepository, container.tts, container.geminiTts.lastError,
             ) as T
+
+        modelClass.isAssignableFrom(StatsViewModel::class.java) ->
+            StatsViewModel(container.planRepository) as T
 
         else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }

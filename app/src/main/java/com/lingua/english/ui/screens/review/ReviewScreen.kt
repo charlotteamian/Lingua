@@ -23,8 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.local.entity.ChunkEntity
 import com.lingua.english.domain.ReviewGrade
 import com.lingua.english.ui.components.LinguaCard
+import com.lingua.english.ui.components.LinguaChip
 import com.lingua.english.ui.components.LocalWordLookup
 import com.lingua.english.ui.components.TappableText
 import com.lingua.english.ui.theme.LinguaGradients
@@ -83,7 +84,10 @@ fun ReviewScreen(vm: ReviewViewModel, onOpenLibrary: () -> Unit) {
                     Text("复习", style = MaterialTheme.typography.headlineMedium)
                     Text(
                         when {
-                            sessionActive -> "本次还剩 ${queue.size} 张 · 已完成 ${session.doneThisSession}"
+                            sessionActive -> buildString {
+                                append("本次还剩 ${queue.size} 张 · 已完成 ${session.doneThisSession}")
+                                if (session.relearnIds.isNotEmpty()) append(" · 重学 ${session.relearnIds.size}")
+                            }
                             due.isNotEmpty() -> "今日到期 ${due.size} 张"
                             else -> "今日到期清零"
                         },
@@ -104,36 +108,36 @@ fun ReviewScreen(vm: ReviewViewModel, onOpenLibrary: () -> Unit) {
                     Text("这次复习什么", style = MaterialTheme.typography.titleMedium)
                     val source = if (filter.scope == ReviewScope.DUE) due else all
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
+                        LinguaChip(
                             selected = filter.scope == ReviewScope.DUE,
                             onClick = { vm.setScope(ReviewScope.DUE) },
-                            label = { Text("今日到期 ${due.size}", maxLines = 1) },
+                            label = "今日到期 ${due.size}",
                             modifier = Modifier.weight(1f),
                         )
-                        FilterChip(
+                        LinguaChip(
                             selected = filter.scope == ReviewScope.ALL,
                             onClick = { vm.setScope(ReviewScope.ALL) },
-                            label = { Text("全部收藏 ${all.size}", maxLines = 1) },
+                            label = "全部收藏 ${all.size}",
                             modifier = Modifier.weight(1f),
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         KIND_OPTIONS.forEach { (kind, label) ->
                             val count = source.count { it.kind == kind }
-                            FilterChip(
+                            LinguaChip(
                                 selected = kind in filter.kinds,
                                 onClick = { vm.toggleKind(kind) },
-                                label = { Text("$label $count", maxLines = 1) },
+                                label = "$label $count",
                                 modifier = Modifier.weight(1f),
                             )
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LIMIT_OPTIONS.forEach { (limit, label) ->
-                            FilterChip(
+                            LinguaChip(
                                 selected = filter.limit == limit,
                                 onClick = { vm.setLimit(limit) },
-                                label = { Text(label, maxLines = 1) },
+                                label = label,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -143,7 +147,8 @@ fun ReviewScreen(vm: ReviewViewModel, onOpenLibrary: () -> Unit) {
                     Button(
                         onClick = vm::startSession,
                         enabled = available > 0,
-                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
                     ) {
                         Text(
                             if (available > 0) "开始复习 ($available 张)"
@@ -184,15 +189,25 @@ fun ReviewScreen(vm: ReviewViewModel, onOpenLibrary: () -> Unit) {
             item {
                 LinguaCard(background = LinguaGradients.reviewAccent) {
                     Text(
-                        when (card.kind) {
-                            ChunkEntity.KIND_WORD -> "生词"
-                            ChunkEntity.KIND_SENTENCE -> "句子 · 出中文说英文"
-                            else -> "词块"
+                        buildString {
+                            // 刚才答「忘了」又转回来的卡: 标出来, 这一遍答对才算过
+                            if (card.id in session.relearnIds) append("重学 · ")
+                            append(
+                                when (card.kind) {
+                                    ChunkEntity.KIND_WORD -> "生词"
+                                    ChunkEntity.KIND_SENTENCE -> "句子 · 出中文说英文"
+                                    else -> "词块"
+                                }
+                            )
                         },
-                        color = LinguaOnSurfaceMuted,
+                        color = if (card.id in session.relearnIds) MaterialTheme.colorScheme.error
+                        else LinguaOnSurfaceMuted,
                         style = MaterialTheme.typography.labelMedium,
                     )
-                    Text(card.meaningZh.ifEmpty { "(没有中文释义, 直接想它的用法)" }, style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        card.meaningZh.ifEmpty { "（没有中文释义，请到收藏库补上）" },
+                        style = MaterialTheme.typography.titleLarge,
+                    )
                     if (card.note.isNotEmpty() && !session.showAnswer) {
                         Text("提示: ${card.note}", color = LinguaOnSurfaceMuted, style = MaterialTheme.typography.bodyMedium)
                     }
@@ -295,9 +310,15 @@ fun ReviewScreen(vm: ReviewViewModel, onOpenLibrary: () -> Unit) {
                 LinguaCard(background = LinguaGradients.reviewAccent) {
                     Text("本次完成 ✓", style = MaterialTheme.typography.titleLarge, color = LinguaTertiary)
                     Text(
-                        "复习了 ${session.doneThisSession} 张。" +
-                            if (due.isNotEmpty()) "今日还有 ${due.size} 张到期, 可以再来一轮。"
-                            else "今日到期全部清零。",
+                        buildString {
+                            append("复习了 ${session.doneThisSession} 张")
+                            if (session.lapsedCount > 0) append(", 忘掉的 ${session.lapsedCount} 张也重学过关")
+                            append("。")
+                            append(
+                                if (due.isNotEmpty()) "今日还有 ${due.size} 张到期, 可以再来一轮。"
+                                else "今日到期全部清零。"
+                            )
+                        },
                         color = LinguaOnSurfaceMuted,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -325,7 +346,12 @@ private val LIMIT_OPTIONS = listOf<Pair<Int?, String>>(
 )
 
 @Composable
-internal fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (String) -> Unit) {
+internal fun ChunkRow(
+    chunk: ChunkEntity,
+    onSpeak: (String) -> Unit,
+    onEdit: (ChunkEntity) -> Unit,
+    onDelete: (String) -> Unit,
+) {
     val today = LocalDate.now().toEpochDay()
     Row(
         modifier = Modifier
@@ -376,6 +402,12 @@ internal fun ChunkRow(chunk: ChunkEntity, onSpeak: (String) -> Unit, onDelete: (
             Icon(
                 Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "朗读",
                 tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp),
+            )
+        }
+        IconButton(onClick = { onEdit(chunk) }, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Filled.Edit, contentDescription = "编辑",
+                tint = LinguaOnSurfaceMuted, modifier = Modifier.size(18.dp),
             )
         }
         IconButton(onClick = { onDelete(chunk.id) }, modifier = Modifier.size(36.dp)) {

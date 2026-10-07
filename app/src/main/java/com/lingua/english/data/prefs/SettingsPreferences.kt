@@ -18,6 +18,12 @@ class SettingsPreferences(context: Context) {
 
     private val ds = context.applicationContext.linguaDataStore
 
+    // ─── 界面 ────────────────────────────────────────────────
+
+    /** comfortable / system / rounded / serif */
+    val appFont: Flow<String> = ds.data.map { it[KEY_APP_FONT] ?: "comfortable" }
+    suspend fun setAppFont(id: String) = ds.edit { it[KEY_APP_FONT] = id }
+
     // ─── AI API (BYOK) ───────────────────────────────────────
 
     val aiApiPreset: Flow<String> = ds.data.map { it[KEY_AI_PRESET] ?: "deepseek" }
@@ -49,8 +55,13 @@ class SettingsPreferences(context: Context) {
     val ttsVoice: Flow<String> = ds.data.map { it[KEY_TTS_VOICE] ?: "Kore" }
     suspend fun setTtsVoice(voice: String) = ds.edit { it[KEY_TTS_VOICE] = voice }
 
-    /** Gemini TTS 模型 (语料/单词朗读), 出了新版直接改这里。 */
-    val ttsModel: Flow<String> = ds.data.map { it[KEY_TTS_MODEL] ?: "gemini-3.1-flash-tts" }
+    /** Gemini TTS 模型 (语料/单词朗读), 顺手兼容曾经写入的缺少 -preview 的旧模型名。 */
+    val ttsModel: Flow<String> = ds.data.map {
+        when (val stored = it[KEY_TTS_MODEL] ?: DEFAULT_TTS_MODEL) {
+            LEGACY_TTS_MODEL -> DEFAULT_TTS_MODEL
+            else -> stored
+        }
+    }
     suspend fun setTtsModel(model: String) = ds.edit { it[KEY_TTS_MODEL] = model }
 
     /** Gemini Live 实时语音对话模型 (端到端, 不走 STT/TTS 拼接)。 */
@@ -86,6 +97,10 @@ class SettingsPreferences(context: Context) {
     suspend fun setLearnerLevel(level: String) = ds.edit { it[KEY_LEVEL] = level }
 
     companion object {
+        const val DEFAULT_TTS_MODEL = "gemini-3.1-flash-tts-preview"
+        private const val LEGACY_TTS_MODEL = "gemini-3.1-flash-tts"
+
+        private val KEY_APP_FONT = stringPreferencesKey("app_font")
         private val KEY_AI_PRESET = stringPreferencesKey("ai_api_preset")
         private val KEY_AI_BASE_URL = stringPreferencesKey("ai_api_base_url")
         private val KEY_AI_KEY = stringPreferencesKey("ai_api_key")

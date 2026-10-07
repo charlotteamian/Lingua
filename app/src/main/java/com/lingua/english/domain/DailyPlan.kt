@@ -72,4 +72,22 @@ object DailyPlan {
     /** 保底达成即续 streak。 */
     fun countsForStreak(log: DailyLogEntity): Boolean =
         log.reviewsDone + log.listensDone + log.chatTurns + log.materialsAdded > 0
+
+    /**
+     * 历史某天的档位快照, 用于打卡日历(月网格 / 年热力图)。
+     * 历史行没有存"当天到期数", 所以好天的判定用"听完 ≥1 条"代替"到期清零"。
+     */
+    fun tierForLog(log: DailyLogEntity?): PlanTier {
+        val l = log ?: return PlanTier.NONE
+        val anyAction = l.reviewsDone + l.listensDone + l.chatTurns + l.materialsAdded > 0
+        val normalMet = l.reviewsDone >= MIN_REVIEWS &&
+            (l.chatTurns >= NORMAL_CHAT_TURNS || l.materialsAdded >= 1)
+        val goodMet = normalMet && l.listensDone >= 1
+        return when {
+            goodMet -> PlanTier.GOOD
+            normalMet -> PlanTier.NORMAL
+            anyAction -> PlanTier.MINIMUM
+            else -> PlanTier.NONE
+        }
+    }
 }

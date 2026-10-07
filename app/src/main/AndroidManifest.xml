@@ -8,6 +8,13 @@
     <!-- 语音输入 (对话页说英文 / 随手记说中文) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- 实时通话进入后台/锁屏时仍保持麦克风与网络连接 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- 实时通话: 切 VoIP 通信模式 + 外放路由, 回声消除才拿得到扬声器参考 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- 发现系统 TTS / 语音识别引擎 (Android 11+ 包可见性) -->
     <queries>
         <intent>
@@ -47,6 +54,11 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".data.ai.LiveCallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 
 </manifest>

@@ -19,6 +19,10 @@ import kotlinx.coroutines.launch
 data class ReviewSessionState(
     val showAnswer: Boolean = false,
     val doneThisSession: Int = 0,
+    /** 本次会话里答过「忘了」、还没重学过关的卡 id (Anki 式重学循环)。 */
+    val relearnIds: Set<String> = emptySet(),
+    /** 本次会话里忘过的卡总数 (完成卡文案用)。 */
+    val lapsedCount: Int = 0,
 )
 
 /** 复习范围: 只刷今日到期 (SRS 安排的) 还是全部收藏 (提前加练)。 */
@@ -128,8 +132,23 @@ class ReviewViewModel(
     fun grade(card: ChunkEntity, grade: ReviewGrade) {
         viewModelScope.launch {
             reviewRepo.grade(card, grade)
-            _sessionIds.value = _sessionIds.value?.minus(card.id)
-            _session.value = ReviewSessionState(doneThisSession = _session.value.doneThisSession + 1)
+            val s = _session.value
+            if (grade == ReviewGrade.FORGOT) {
+                // 重学循环: 忘了的卡不出队, 挪到队尾, 本次会话里答对一次才算过
+                _sessionIds.value = _sessionIds.value?.let { it - card.id + card.id }
+                _session.value = s.copy(
+                    showAnswer = false,
+                    relearnIds = s.relearnIds + card.id,
+                    lapsedCount = if (card.id in s.relearnIds) s.lapsedCount else s.lapsedCount + 1,
+                )
+            } else {
+                _sessionIds.value = _sessionIds.value?.minus(card.id)
+                _session.value = s.copy(
+                    showAnswer = false,
+                    doneThisSession = s.doneThisSession + 1,
+                    relearnIds = s.relearnIds - card.id,
+                )
+            }
             _speak.value = SpeakCompareState()
         }
     }
@@ -138,6 +157,18 @@ class ReviewViewModel(
 
     fun delete(chunkId: String) {
         viewModelScope.launch { reviewRepo.delete(chunkId) }
+    }
+
+    fun updateCollection(
+        chunk: ChunkEntity,
+        text: String,
+        meaningZh: String,
+        note: String,
+        kind: String,
+    ) {
+        viewModelScope.launch {
+            reviewRepo.updateCollection(chunk, text, meaningZh, note, kind)
+        }
     }
 
     // ─── 句子卡: 先说英文再对比 ──────────────────────────────

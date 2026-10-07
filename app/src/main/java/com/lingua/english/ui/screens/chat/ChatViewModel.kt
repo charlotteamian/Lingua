@@ -27,7 +27,6 @@ import kotlinx.coroutines.launch
 data class ChatSendState(
     val sending: Boolean = false,
     val error: String? = null,
-    val pendingNewTopic: Boolean = false,
 )
 
 data class VoiceRecordState(
@@ -43,7 +42,10 @@ data class ChatSessionSummary(
     val preview: String,
 )
 
-/** 按「新话题」分界把全部消息切成话题段, 最后一段 = 当前话题。 */
+/**
+ * 按「新话题」分界把全部消息切成话题段, 最后一段 = 当前话题。
+ * role=break 的标记行只负责分段, 不进任何段 (点「新话题」当场落的那条)。
+ */
 internal fun sessionsOf(all: List<ChatMessageEntity>): List<List<ChatMessageEntity>> {
     if (all.isEmpty()) return emptyList()
     val sessions = mutableListOf(mutableListOf<ChatMessageEntity>())
@@ -51,7 +53,9 @@ internal fun sessionsOf(all: List<ChatMessageEntity>): List<List<ChatMessageEnti
         if (message.contextBreak && sessions.last().isNotEmpty()) {
             sessions.add(mutableListOf())
         }
-        sessions.last().add(message)
+        if (message.role != ChatRepository.ROLE_BREAK) {
+            sessions.last().add(message)
+        }
     }
     return sessions
 }
@@ -102,10 +106,9 @@ class ChatViewModel(
     fun send(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || _sendState.value.sending) return
-        val newTopic = _sendState.value.pendingNewTopic
         _sendState.value = _sendState.value.copy(sending = true, error = null)
         viewModelScope.launch {
-            runCatching { chatRepo.send(trimmed, newTopic) }
+            runCatching { chatRepo.send(trimmed) }
                 .onSuccess { reply ->
                     _sendState.value = ChatSendState()
                     if (prefs.autoReadReplies.first()) {
@@ -118,9 +121,9 @@ class ChatViewModel(
         }
     }
 
-    /** 下一条消息作为新话题 (清空模型上下文, 历史仍保留展示)。 */
+    /** 开新话题: 当场归档旧话题 (落 break 标记), 对话页立即空白。 */
     fun markNewTopic() {
-        _sendState.value = _sendState.value.copy(pendingNewTopic = true)
+        viewModelScope.launch { runCatching { chatRepo.startNewTopic() } }
     }
 
     fun speak(text: String) = tts.speak(stripMarkup(text))
@@ -129,6 +132,18 @@ class ChatViewModel(
     fun saveChunk(text: String, zh: String) {
         viewModelScope.launch {
             reviewRepo.addStandalone(text, zh, "来自对话", ChunkEntity.KIND_CHUNK)
+        }
+    }
+
+    /** 从通话转写/语音消息中自选一段，只按词块收藏，不进整句跟读卡。 */
+    fun collectChunk(text: String, meaningZh: String, note: String) {
+        viewModelScope.launch {
+            reviewRepo.addStandalone(
+                text = text,
+                meaningZh = meaningZh,
+                note = note.ifBlank { "来自对话" },
+                kind = ChunkEntity.KIND_CHUNK,
+            )
         }
     }
 
@@ -214,10 +229,9 @@ class ChatViewModel(
             _sendState.value = _sendState.value.copy(error = "没录到声音, 再试一次")
             return
         }
-        val newTopic = _sendState.value.pendingNewTopic
         _sendState.value = _sendState.value.copy(sending = true, error = null)
         viewModelScope.launch {
-            runCatching { chatRepo.sendVoice(file, newTopic) }
+            runCatching { chatRepo.sendVoice(file) }
                 .onSuccess { reply ->
                     _sendState.value = ChatSendState()
                     if (prefs.autoReadReplies.first()) {

@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -14,12 +15,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -28,6 +32,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.lingua.english.data.AppContainer
+import com.lingua.english.data.ai.LivePhase
 import com.lingua.english.ui.LinguaViewModelFactory
 import com.lingua.english.ui.components.LocalWordLookup
 import com.lingua.english.ui.components.WordLookupController
@@ -56,9 +61,13 @@ import com.lingua.english.ui.screens.review.ReviewScreen
 import com.lingua.english.ui.screens.review.ReviewViewModel
 import com.lingua.english.ui.screens.settings.SettingsScreen
 import com.lingua.english.ui.screens.settings.SettingsViewModel
+import com.lingua.english.ui.screens.stats.StatsScreen
+import com.lingua.english.ui.screens.stats.StatsViewModel
 import com.lingua.english.ui.screens.today.TodayScreen
 import com.lingua.english.ui.screens.today.TodayViewModel
+import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaTheme
+import com.lingua.english.ui.theme.AppFontChoice
 
 class MainActivity : ComponentActivity() {
 
@@ -70,7 +79,10 @@ class MainActivity : ComponentActivity() {
         container = (application as LinguaApplication).container
         handleShareIntent(intent)
         setContent {
-            LinguaTheme {
+            val appFont by container.prefs.appFont.collectAsStateWithLifecycle(
+                initialValue = AppFontChoice.DEFAULT.id,
+            )
+            LinguaTheme(fontChoice = AppFontChoice.fromId(appFont)) {
                 LinguaApp(container)
             }
         }
@@ -97,6 +109,10 @@ private fun LinguaApp(container: AppContainer) {
     val factory = remember { LinguaViewModelFactory(container) }
     val scope = rememberCoroutineScope()
 
+    // 通话只要在连接/进行中，整个 Activity 都常亮。不依赖聊天页是否仍在组合树中。
+    val liveState by container.geminiLive.state.collectAsStateWithLifecycle()
+    KeepScreenOnWhile(liveState.phase != LivePhase.IDLE)
+
     // 全 app 共享的点词查词控制器
     val wordLookup = remember {
         WordLookupController(scope, container.dictRepository, container.reviewRepository, container.tts)
@@ -121,7 +137,10 @@ private fun LinguaApp(container: AppContainer) {
         Scaffold(
             bottomBar = {
                 if (TopDestination.entries.any { it.route == currentRoute }) {
-                    NavigationBar {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        tonalElevation = 0.dp,
+                    ) {
                         TopDestination.entries.forEach { destination ->
                             val selected = currentRoute == destination.route
                             NavigationBarItem(
@@ -142,7 +161,13 @@ private fun LinguaApp(container: AppContainer) {
                                     )
                                 },
                                 label = { Text(stringResource(destination.labelRes)) },
-                                colors = NavigationBarItemDefaults.colors(),
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = LinguaOnSurfaceMuted,
+                                    unselectedTextColor = LinguaOnSurfaceMuted,
+                                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                ),
                             )
                         }
                     }
@@ -162,7 +187,12 @@ private fun LinguaApp(container: AppContainer) {
                         onGoChat = { navController.navigate(TopDestination.Chat.route) },
                         onGoReview = { navController.navigate(TopDestination.Review.route) },
                         onGoCompose = { navController.navigate(Routes.COMPOSE_ENTRY) },
+                        onOpenStats = { navController.navigate(Routes.STATS) },
                     )
+                }
+                composable(Routes.STATS) {
+                    val vm: StatsViewModel = viewModel(factory = factory)
+                    StatsScreen(vm, onBack = { navController.popBackStack() })
                 }
                 composable(TopDestination.Chat.route) {
                     val vm: ChatViewModel = viewModel(factory = factory)
@@ -253,5 +283,16 @@ private fun LinguaApp(container: AppContainer) {
 
             WordLookupSheet(wordLookup)
         }
+    }
+}
+
+@Composable
+private fun KeepScreenOnWhile(active: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(view, active) {
+        if (!active) return@DisposableEffect onDispose { }
+        val previous = view.keepScreenOn
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = previous }
     }
 }

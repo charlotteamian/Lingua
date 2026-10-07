@@ -41,6 +41,7 @@ import com.lingua.english.data.practice.PronunciationCoach
 import com.lingua.english.data.tts.GeminiTtsProvider
 import com.lingua.english.data.tts.TtsStatus
 import com.lingua.english.ui.components.LinguaCard
+import com.lingua.english.ui.theme.AppFontChoice
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import com.lingua.english.ui.theme.LinguaTertiary
 
@@ -54,6 +55,7 @@ private val GEMINI_VOICES = listOf(
 
 @Composable
 fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
+    val appFont by vm.appFont.collectAsStateWithLifecycle()
     val preset by vm.aiPreset.collectAsStateWithLifecycle()
     val baseUrl by vm.aiBaseUrl.collectAsStateWithLifecycle()
     val key by vm.aiKey.collectAsStateWithLifecycle()
@@ -105,6 +107,36 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
                 Text("设置", style = MaterialTheme.typography.headlineMedium)
+            }
+        }
+
+        item {
+            LinguaCard {
+                Text("界面字体", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "选择后全 App 立即生效。推荐方案专门加厚中文，避免英文粗、中文却回退成细字。",
+                    color = LinguaOnSurfaceMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(AppFontChoice.entries) { choice ->
+                        FilterChip(
+                            selected = choice.id == appFont,
+                            onClick = { vm.setAppFont(choice.id) },
+                            label = { Text(choice.label, maxLines = 1) },
+                        )
+                    }
+                }
+                val selectedFont = AppFontChoice.fromId(appFont)
+                Text(
+                    selectedFont.description,
+                    color = LinguaOnSurfaceMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "中文阅读更舒服 · British English looks clear and balanced.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
             }
         }
 

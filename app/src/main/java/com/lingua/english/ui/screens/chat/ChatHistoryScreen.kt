@@ -25,7 +25,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.ui.components.LinguaCard
+import com.lingua.english.ui.components.CollectionEditorSheet
 import com.lingua.english.ui.components.SentenceCollectSheet
+import com.lingua.english.data.local.entity.ChunkEntity
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 import java.time.Instant
 import java.time.ZoneId
@@ -96,6 +98,7 @@ fun ChatSessionScreen(
     val playingVoice by vm.playingVoice.collectAsStateWithLifecycle()
     val savedTexts by vm.savedTexts.collectAsStateWithLifecycle()
     var collectSource by remember { mutableStateOf<String?>(null) }
+    var chunkSource by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -128,6 +131,7 @@ fun ChatSessionScreen(
                 onSaveChunk = vm::saveChunk,
                 onToggleVoice = vm::toggleVoicePlayback,
                 onCollect = { collectSource = message.content },
+                onExtractChunk = { chunkSource = message.content },
             )
         }
     }
@@ -138,4 +142,21 @@ fun ChatSessionScreen(
         onCollect = vm::collectSentence,
         onDismiss = { collectSource = null },
     )
+    if (chunkSource != null) {
+        CollectionEditorSheet(
+            title = "自己挖词块",
+            initialText = "",
+            initialMeaningZh = "",
+            initialNote = "来自对话",
+            initialKind = ChunkEntity.KIND_CHUNK,
+            allowedKinds = listOf(ChunkEntity.KIND_CHUNK),
+            sourceText = chunkSource,
+            saveLabel = "收进词块复习",
+            onSave = { text, meaningZh, note, _ ->
+                vm.collectChunk(text, meaningZh, note)
+                chunkSource = null
+            },
+            onDismiss = { chunkSource = null },
+        )
+    }
 }

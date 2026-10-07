@@ -56,9 +56,9 @@ class WebViewCaptionFetcher(private val context: Context) {
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun fetch(videoId: String): RawCaptions = withContext(Dispatchers.Main) {
         try {
-            withTimeout(60_000) { fetchInner(videoId) }
+            withTimeout(90_000) { fetchInner(videoId) }
         } catch (e: TimeoutCancellationException) {
-            throw AiException("网页通道 60 秒内没走完 (页面加载慢或代理拥堵), 再试一次")
+            throw AiException("网页通道 90 秒内没走完 (页面加载慢或代理拥堵), 再试一次")
         }
     }
 
@@ -90,9 +90,7 @@ class WebViewCaptionFetcher(private val context: Context) {
             // 触发播放器加载字幕需要 JS 能自主起播
             webView.settings.mediaPlaybackRequiresUserGesture = false
             // 桌面 UA: 避免被重定向到 m.youtube.com (页面结构不同, 播放器数据出得晚)
-            webView.settings.userAgentString =
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            webView.settings.userAgentString = DESKTOP_UA
             webView.settings.useWideViewPort = true
             runCatching {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -148,7 +146,7 @@ class WebViewCaptionFetcher(private val context: Context) {
                                     }
                                 }, 20_000)
                             }
-                            attempt < 24 -> mainHandler.postDelayed({ poll(attempt + 1) }, 500)
+                            attempt < 40 -> mainHandler.postDelayed({ poll(attempt + 1) }, 500)
                             else -> finish {
                                 cont.resume(RawCaptions(state.title, state.baseUrl, "", ""))
                             }
@@ -163,9 +161,10 @@ class WebViewCaptionFetcher(private val context: Context) {
                 }
             }, "CapBridge")
 
+            val extractJs = EXTRACT_JS.replace("%VID%", videoId)
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
-                    view.evaluateJavascript(EXTRACT_JS.replace("%VID%", videoId), null)
+                    view.evaluateJavascript(extractJs, null)
                 }
 
                 override fun shouldInterceptRequest(
@@ -183,10 +182,33 @@ class WebViewCaptionFetcher(private val context: Context) {
             cont.invokeOnCancellation {
                 mainHandler.post { runCatching { webView.destroy() } }
             }
+            // 隐藏 WebView 是 0×0 的, 给它量出一块真实尺寸——播放器按 0 尺寸初始化时
+            // 经常不建 video 元素, 触发字幕加载 (截 pot 地址) 就会挂
+            runCatching {
+                webView.measure(
+                    android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY),
+                )
+                webView.layout(0, 0, 1080, 1920)
+            }
             webView.loadUrl("https://www.youtube.com/watch?v=$videoId&hl=en")
+            // onPageFinished 在慢代理下可能迟迟不来 (SPA 长加载); 定时补注入兜底, 脚本自身幂等
+            listOf(8_000L, 20_000L).forEach { delay ->
+                mainHandler.postDelayed({
+                    if (!done.get()) runCatching { webView.evaluateJavascript(extractJs, null) }
+                }, delay)
+            }
         }
 
     companion object {
+        /**
+         * 桌面 UA (避开 m.youtube.com 重定向)。播放页和字幕通道共用同一配置——
+         * 同一环境里验证过其中一条能通, 另一条才可信。
+         */
+        internal const val DESKTOP_UA =
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
         /**
          * 页内脚本: ① 取 ytInitialPlayerResponse 的字幕轨 (等不到就用页面自己的
          * ytcfg 密钥调站内 player API); ② 选英文轨后先回传地址 (onTrack), 再触发

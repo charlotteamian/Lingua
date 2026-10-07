@@ -30,6 +30,7 @@ private val LinguaDarkColors = darkColorScheme(
 @Composable
 fun LinguaTheme(
     @Suppress("UNUSED_PARAMETER") darkTheme: Boolean = isSystemInDarkTheme(),
+    fontChoice: AppFontChoice = AppFontChoice.DEFAULT,
     content: @Composable () -> Unit
 ) {
     // 永远深色 (charlotte 偏好 #06080f), 不跟系统切换
@@ -50,7 +51,7 @@ fun LinguaTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = LinguaTypography,
+        typography = linguaTypography(fontChoice),
         content = content
     )
 }

@@ -31,10 +31,35 @@ class ReviewRepository(
         val today = LocalDate.now()
         chunkDao.update(Srs.review(chunk, grade, today, System.currentTimeMillis()))
         dailyLogDao.insertIgnore(DailyLogEntity(date = today.toString()))
-        dailyLogDao.incrementReviews(today.toString())
+        // 忘了的卡当天还要重学, 重学答对那次才计入「复习 N 张」
+        if (grade != ReviewGrade.FORGOT) dailyLogDao.incrementReviews(today.toString())
     }
 
     suspend fun delete(chunkId: String) = chunkDao.deleteById(chunkId)
+
+    /** 编辑收藏正反面和备注; 保留原来的 SRS 进度与来源关系。 */
+    suspend fun updateCollection(
+        chunk: ChunkEntity,
+        text: String,
+        meaningZh: String,
+        note: String,
+        kind: String,
+    ) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        chunkDao.update(
+            chunk.copy(
+                text = trimmed,
+                meaningZh = meaningZh.trim(),
+                note = note.trim(),
+                kind = kind.takeIf {
+                    it == ChunkEntity.KIND_SENTENCE ||
+                        it == ChunkEntity.KIND_CHUNK ||
+                        it == ChunkEntity.KIND_WORD
+                } ?: chunk.kind,
+            )
+        )
+    }
 
     /**
      * 独立加卡: 词典底部卡「加入生词本」(kind=word) 和对话里「＋收词块」(kind=chunk)

@@ -7,6 +7,7 @@ import com.lingua.english.data.local.entity.MaterialEntity
 import com.lingua.english.data.prefs.SettingsPreferences
 import com.lingua.english.data.repository.ConvertedChunk
 import com.lingua.english.data.repository.ConvertedMaterial
+import com.lingua.english.data.repository.CustomCollectionDraft
 import com.lingua.english.data.repository.MaterialRepository
 import com.lingua.english.data.repository.ReviewRepository
 import com.lingua.english.data.tts.TtsProvider
@@ -29,6 +30,7 @@ data class ComposeEntryState(
     val converting: Boolean = false,
     val converted: ConvertedMaterial? = null,
     val keptChunkIndices: Set<Int> = emptySet(),
+    val customCollections: List<CustomCollectionDraft> = emptyList(),
     val error: String? = null,
     val saved: Boolean = false,
 )
@@ -64,11 +66,47 @@ class ComposeEntryViewModel(
         )
     }
 
+    fun upsertCustomCollection(
+        index: Int?,
+        text: String,
+        meaningZh: String,
+        note: String,
+        kind: String,
+    ) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        val current = _state.value.customCollections
+        val duplicateIndex = current.indexOfFirst { it.text.trim().equals(trimmed, ignoreCase = true) }
+        if (duplicateIndex >= 0 && duplicateIndex != index) {
+            _state.value = _state.value.copy(error = "这条内容已经在自选收藏里了")
+            return
+        }
+        val draft = CustomCollectionDraft(
+            text = trimmed,
+            meaningZh = meaningZh.trim(),
+            note = note.trim(),
+            kind = kind,
+        )
+        val updated = current.toMutableList().apply {
+            if (index != null && index in indices) set(index, draft) else add(draft)
+        }
+        _state.value = _state.value.copy(customCollections = updated, error = null)
+    }
+
+    fun removeCustomCollection(index: Int) {
+        if (index !in _state.value.customCollections.indices) return
+        _state.value = _state.value.copy(
+            customCollections = _state.value.customCollections.filterIndexed { i, _ -> i != index },
+            error = null,
+        )
+    }
+
     fun save(sourceText: String) {
         val converted = _state.value.converted ?: return
         val kept = _state.value.keptChunkIndices.sorted().map { converted.chunks[it] }
+        val custom = _state.value.customCollections
         viewModelScope.launch {
-            materialRepo.save(sourceText, converted, kept)
+            materialRepo.save(sourceText, converted, kept, custom)
             _state.value = _state.value.copy(saved = true)
         }
     }

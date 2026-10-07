@@ -83,6 +83,30 @@ charlotte 的**个人英语学习 Android app**,代号 **Lingua** (拉丁语"语
   - **模型三分工 (charlotte: 严禁 STT/TTS 拼接语音流, 按 Google 推荐拆)**: ① 文字/讲解 = 「AI 对话服务」模型 (gemini 预设默认改 `gemini-3.5-flash`); ② 朗读 = TTS 模型 (默认改 `gemini-3.1-flash-tts`); ③ **实时语音对话 = Gemini Live 端到端** (`prefs.liveModel` 默认 `gemini-3.1-flash-live-preview`, 设置页对话卡可改——**模型 ID 是按 charlotte 说法猜的, 连不通让她贴官方文档里的名字**)。
   - **`GeminiLiveClient`** (data/ai): BidiGenerateContent WebSocket; setup 带 systemInstruction (`Prompts.liveTutorSystem` 口语版人设, 无 ✎/▸ 标记) + AUDIO 模态 + 声音名 (复用 ttsVoice) + 双向转写开关; 麦克风 AudioRecord **VOICE_COMMUNICATION 源 (自带回声消除)** 16kHz PCM 100ms/片直传; 模型 24kHz PCM → AudioTrack 流式播; `interrupted` 清播放队列 (插话打断); `turnComplete` 把双方转写经 `ChatRepository.addLiveExchange` 落库进聊天记录 (挂断时半轮也落)。对话页输入框左侧 ☎ 按钮拨打, `LiveCallBar` 显示状态/实时转写/挂断。
   - 验证: assembleDebug 通过。**待真机**: 通话全链路 (模型名对不对/转写落库/打断), 播放器 watch 页降级效果。
+- ✅ **2026-07-11 新话题立即归档 + 全 app 视觉对齐设计稿 + 换 Nunito 字体 (charlotte 二连)**:
+  - **新话题当场生效**: 之前点「新话题」只挂 pendingNewTopic 旗子, 下一条消息才真正分界。改为点击即落一条 **break 标记行** (`ChatRepository.startNewTopic`, role=`break` 空内容 contextBreak=true): 旧话题立刻归档进「往期」、对话页立即空白。`sessionsOf` 分段时跳过标记行 (不进任何段); buildContext 的空内容过滤天然把它挡在模型上下文外; send/sendVoice 的 newTopic 参数和 pendingNewTopic 状态全部删除。当前话题为空时按钮禁用、重复点不落重复标记。
+  - **Nunito 字体**: 下载 Google Fonts 官方仓库的 Nunito 变量字体 (OFL, 277KB) 进 `res/font/nunito_variable.ttf`; Type.kt 重写——15 个字型全套 Nunito (变量字体 API 26+ 按 weight 实例化非假粗体), 标题 Bold、正文 Medium, 中文无字形自动回退系统字体。
+  - **视觉对齐设计稿** (charlotte 发的四张图): ① 今日页重构——「这一周」独立卡 (标题+看全部→+周条, 火焰挪回成就页) / 三档卡每档**色点+档位色标题** (保底琥珀/正常蓝/好天薄荷) + 任务行右侧 x/y (完成薄荷色) / 三个快捷入口拆成独立卡; ② 新建 `ui/components/LinguaChip` (胶囊形, 选中=蓝描边蓝字), 复习页+收藏库全部换用; 复习「开始复习」按钮 50dp 高 14dp 圆角; ③ 语料页「＋记一条」蓝调 pill, 日期 "2026-07-06"→"7月6日"; ④ 对话气泡圆角 20dp, ▸ 词块 + 按钮加玫红圆底; ⑤ 底栏 containerColor=背景色 tonalElevation=0, 选中蓝/未选灰、淡蓝指示。
+  - 验证: assembleDebug 通过。**待真机**: 字体渲染 (中英混排观感)、新话题即时归档、四页视觉与设计稿的差距。
+- ✅ **2026-07-11 打卡日历 · 成就页 (合入外部补丁 android-patch)**:
+  - 来源: charlotte 从别处拿到的「完整文件」式补丁 (Downloads/android-patch, 含 INSTALL.md)。逐个 diff 确认全是基于当前版本的纯增量、无冲突后叠加覆盖, 非盲目替换。
+  - **新页面** `stats` 路由 (`ui/screens/stats/StatsScreen.kt` + `StatsViewModel.kt`): 火焰 hero (连续天数/最长纪录/累计天数) + 本月网格 (三色分档: 保底琥珀/正常蓝/好天薄荷, 今日描边) + 近一年 GitHub 式热力图 (53 周横滚, 月份标签)。今日页 streak 卡片重做成会呼吸的火焰 + 迷你周视图, 点击进成就页。
+  - **配套增量**: `DailyPlan.tierForLog()` (历史某天档位, 好天判定用「听≥1」代替「到期清零」, 因历史行不存当天到期数); `PlanRepository.allLogs()` 暴露全表流; `TodayViewModel.weekLogs` (本周7天); `Routes.STATS` + ViewModelFactory 注册 + MainActivity 路由 + TodayScreen `onOpenStats`。三色配色函数 `dayTierColor/dayTierTextColor` 在 TodayScreen 里 internal, StatsScreen 复用。
+  - 补丁作者漏了 `import ...layout.height` (无编译环境), 合入时补上。assembleDebug 通过。补丁 README 说 Chat/Corpus/Review 三页视觉重做未做 (风险高), 只落地了打卡日历。
+- ✅ **2026-07-11 播放器黑边/暂停攻坚 + 暂停回落字幕定位 + 复习重学循环 (charlotte 三轮反馈)**:
+  - **黑边根治换思路**: 不再追着修 YouTube 的排版 (藏顶栏后播放器残留旧偏移, CSS 打补丁是无底洞)——watch 页播放器容器直接 `position:fixed` 钉满 WebView 视口, video 绝对定位填满 + `object-fit:contain` 自行居中, 完全绕开 YouTube 的尺寸计算; 播放窗格恢复纯 16:9 (16:9 视频正好铺满无黑边)。
+  - **播放/暂停状态机**: 弃用「单次 pause 事件里判断+抢救」(600ms 触屏窗口误判 = 用户暂停被抢回去/自动暂停没救回来的根源), 改「用户意图标志 + 看门狗」——触屏 900ms 内的 pause 记为用户主动 (`__linguaUserPaused`), 无触屏的 = 平台自动暂停, 由 1.2s 轮询的看门狗恢复 (事件丢失/play() 被再掐都兜得住); 最近 2.5s 有触屏时看门狗不动手, 防抢用户的暂停。
+  - **暂停 → 画面缩回 → 字幕定位** (charlotte 的核心诉求): 新增 Bridge 事件 postPaused/postPlaying (watch 页走 video 捕获事件, iframe 走 onStateChange, 双模式统一); 用户暂停 → 程序化退全屏 (页内 `document.exitFullscreen()` + 400ms 兜底直接收 custom view) → 字幕滚动定位到暂停那句并自动弹出整句操作行 (翻译按钮就在手边); 恢复播放自动清掉「暂停自动选中」回到跟随滚动, 手动点选的行不受影响 (autoSelectedFromPause 区分)。字幕正文/翻译字号 bodyMedium→bodyLarge (真机上太小)。
+  - **字幕拉取加固**: WebView 通道超时 60s→90s; 隐藏 WebView layout 成 1080×1920 (0×0 尺寸下播放器经常不建 video 元素, 触发字幕/截 pot 地址就挂); onPageFinished 迟迟不来时 8s/20s 定时补注入提取脚本 (脚本幂等); 截 pot 地址轮询 12s→20s; importYouTube 的网页通道失败自动重试一次再报错。
+  - **复习重学循环 (Anki relearning 范式; charlotte 要参考主流方案——她要的「遗忘当天再循环」正是 Anki 机制, 于是照搬)**: 「忘了」的卡 interval=0 且 dueEpochDay **留在今天** (不再推到明天), 会话内挪到队尾循环, 答「模糊/记得」才出队毕业到明天 → 「到期清零」天然要求所有忘掉的卡当天重学过关, 中途退出会话忘掉的卡也仍在今日到期里, 完整实现「今天没有遗忘卡才算完成任务」; 只有从已毕业状态 (interval>0) 摔下来才扣 ease/记 lapse, 学习中/重学中反复答错不重复惩罚 (Anki 同款, 防 ease 螺旋下坠); 重学答对那次才计入「复习 N 张」计数; UI: 会话副标题显示重学数、重学卡片红色「重学 ·」标识、完成卡文案带重学统计。
+  - 验证: assembleDebug 通过。**待真机**: 黑边是否消失、暂停/播放是否跟手、暂停缩回+字幕定位链路、字幕拉取成功率、重学循环手感。
+- ✅ **2026-07-18 播放器黑屏根治: 弃 iframe, watch 页成唯一通道 (charlotte: 字幕能抽到了但一直黑屏不播)**:
+  - **黑屏根因 = iframe 优先 + 只在 onError 回调里降级, 三个静默死亡出口全是黑屏**: ① `iframe_api` 脚本经代理加载失败 (和字幕要多试几次同源的网络抖动) → onYouTubeIframeAPIReady 永不触发, 没播放器也没错误, 降级压根走不到; ② 嵌入播放器被风控拦 ("confirm you're not a bot" 拦截页) 不算 error, 干等; ③ 就算降级, 去的是 m.youtube.com 手机页——手机页用户点大播放键之前根本不创建 `<video>`, 而注入 JS 只轮询 `<video>`、看门狗特意「起播前不硬拉」, 没有任何代码去按播放键。**经验: 靠对方回调才降级的多级 fallback, 每一级都要配超时看门狗, 否则静默失败=永远卡死。**
+  - **修法: 播放器只走已验证通道**——和字幕抓取完全同款环境 (桌面 UA `WebViewCaptionFetcher.DESKTOP_UA` 提成共享常量 + `www.youtube.com/watch` + 登录 cookie + SOCS=CAI + domStorage + 宽视口 loadWithOverviewMode), 这是这台设备上唯一验证过能真正起播的通道 (拉字幕时它真播出声过, 还专门静音)。iframe 代码整个删除。
+  - **自动起播驱动** (watch 页自己不会自动播): 注入 JS 等 `movie_player`/`<video>` 就绪后反复 `playVideo()`+`video.play()`, 800ms × 45 ≈ 36s 盖住慢代理; `__linguaEverPlayed` (play 事件置位) 或用户暂停过就永久收手, 不跟用户抢。
+  - **永不静默黑屏**: 起播前原生 Compose 盖层「播放器加载中…」(spinner), 35s 没起播信号换成「没起播——多半网络不稳/确认登录还在」+ 重试按钮 (重新 loadUrl, 幂等)。起播信号 = postPlaying 或 postTime>0.2s, 二者任一撤盖层 (注入晚错过 play 事件时进度兜底)。
+  - **顺手**: seekTo 优先走 `movie_player.seekTo` API (未缓冲区间比改 video.currentTime 稳); 进度轮询在广告播放中 (`ad-showing` class) 不回报, 字幕不跟广告时间轴跑; CSS 加隐桌面页 `#masthead`; 补注入调度改主线程 Handler (factory 时 View 未挂载, View.post 会压队列); `setAcceptThirdPartyCookies` 打开。
+  - 验证: assembleDebug 通过。**待真机**: 进播放页应直接出画面起播; 若 35s 超时看提示文案判断是网络还是登录失效; 全屏/暂停缩回/从这句播在桌面版播放器上的手感。
 - ✅ **2026-07-04 复习范围加维度 + 收藏库独立页 (charlotte: 参考一般背单词 app)**:
   - 调研确认主流范式 (Anki 牌组/墨墨词库): 复习首页只放今日任务+设置+开始, 词库是独立入口页。
   - `ReviewScope` (DUE 今日到期 / ALL 全部收藏): 范围 chips 在类型/数量之上; ALL = 提前加练未到期的卡, 按到期先后排序取卡。会话快照改**有序 id 列表**, `grade()` 显式移除 (支持未到期卡不依赖 due 流缩短); `sessionQueue` 改从 allChunks 映射。

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -57,6 +58,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.data.ai.LivePhase
 import com.lingua.english.data.ai.LiveUiState
 import com.lingua.english.data.local.entity.ChatMessageEntity
+import com.lingua.english.data.local.entity.ChunkEntity
+import com.lingua.english.ui.components.CollectionEditorSheet
 import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.components.LocalWordLookup
 import com.lingua.english.ui.components.SentenceCollectSheet
@@ -84,6 +87,8 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
 
     // 收藏句子底部卡: 非空 = 打开, 值为来源消息全文
     var collectSource by remember { mutableStateOf<String?>(null) }
+    // 自己挖词块: 从通话转写/语音消息文本里长按选取，只保存为 chunk。
+    var chunkSource by remember { mutableStateOf<String?>(null) }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -116,8 +121,9 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
                 )
             }
             TextButton(onClick = onOpenHistory) { Text("往期") }
-            TextButton(onClick = vm::markNewTopic, enabled = !sendState.pendingNewTopic) {
-                Text(if (sendState.pendingNewTopic) "已开新话题" else "新话题")
+            // 点击立即归档当前话题并清空页面 (不用等下一条消息)
+            TextButton(onClick = vm::markNewTopic, enabled = messages.isNotEmpty()) {
+                Text("新话题")
             }
         }
 
@@ -141,6 +147,7 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
                     onSaveChunk = vm::saveChunk,
                     onToggleVoice = vm::toggleVoicePlayback,
                     onCollect = { collectSource = message.content },
+                    onExtractChunk = { chunkSource = message.content },
                 )
             }
             if (sendState.sending) {
@@ -262,6 +269,23 @@ fun ChatScreen(vm: ChatViewModel, onOpenHistory: () -> Unit) {
         onCollect = vm::collectSentence,
         onDismiss = { collectSource = null },
     )
+    if (chunkSource != null) {
+        CollectionEditorSheet(
+            title = "自己挖词块",
+            initialText = "",
+            initialMeaningZh = "",
+            initialNote = "来自对话",
+            initialKind = ChunkEntity.KIND_CHUNK,
+            allowedKinds = listOf(ChunkEntity.KIND_CHUNK),
+            sourceText = chunkSource,
+            saveLabel = "收进词块复习",
+            onSave = { text, meaningZh, note, _ ->
+                vm.collectChunk(text, meaningZh, note)
+                chunkSource = null
+            },
+            onDismiss = { chunkSource = null },
+        )
+    }
 }
 
 /** 实时通话条: 状态 + 实时转写一行 + 挂断。转写完整版每轮结束进聊天记录。 */
@@ -325,6 +349,7 @@ internal fun MessageBubble(
     onSaveChunk: (String, String) -> Unit,
     onToggleVoice: (String) -> Unit,
     onCollect: () -> Unit,
+    onExtractChunk: () -> Unit,
 ) {
     val isUser = message.role == "user"
     val lookup = LocalWordLookup.current
@@ -334,7 +359,7 @@ internal fun MessageBubble(
             modifier = Modifier
                 .align(if (isUser) Alignment.CenterEnd else Alignment.CenterStart)
                 .widthIn(max = 320.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(
                     if (isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                     else LinguaSurfaceVariant.copy(alpha = 0.6f)
@@ -373,6 +398,14 @@ internal fun MessageBubble(
                                     modifier = Modifier.size(14.dp),
                                 )
                             }
+                            IconButton(onClick = onExtractChunk, modifier = Modifier.size(24.dp)) {
+                                Icon(
+                                    Icons.Filled.ContentCut,
+                                    contentDescription = "从语音转写里挖词块",
+                                    tint = LinguaSecondary,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -395,6 +428,14 @@ internal fun MessageBubble(
                             .clickable(onClick = onReveal)
                             .padding(vertical = 4.dp, horizontal = 4.dp),
                     )
+                    IconButton(onClick = onExtractChunk, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Filled.ContentCut,
+                            contentDescription = "从语音回复里挖词块",
+                            tint = LinguaSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
 
                 else -> {
@@ -414,6 +455,14 @@ internal fun MessageBubble(
                                     Icons.Outlined.BookmarkAdd,
                                     contentDescription = "收藏句子",
                                     tint = LinguaOnSurfaceMuted,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            IconButton(onClick = onExtractChunk, modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    Icons.Filled.ContentCut,
+                                    contentDescription = "从回复里挖词块",
+                                    tint = LinguaSecondary,
                                     modifier = Modifier.size(16.dp),
                                 )
                             }
@@ -467,7 +516,10 @@ private fun AssistantContent(
                         } else {
                             IconButton(
                                 onClick = { onSaveChunk(phrase, zh) },
-                                modifier = Modifier.size(28.dp),
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(LinguaSecondary.copy(alpha = 0.18f)),
                             ) {
                                 Icon(
                                     Icons.Filled.Add,

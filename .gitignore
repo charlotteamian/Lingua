@@ -20,3 +20,20 @@ local.properties
 *.aab
 /app/release
 /app/debug
+
+# Local credentials and signing material (use GitHub Actions Secrets in CI).
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+signing.properties
+
+# Personal runtime data; the bundled ECDICT database remains tracked.
+lingua.db*
+chat_audio/
+transcripts/
+backups/

@@ -1,0 +1,106 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Check and build Lingua
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Ensure Android SDK packages
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-35" "build-tools;35.0.0"'
+
+      - name: Restore fixed debug signing key
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          LINGUA_DEBUG_KEYSTORE_BASE64: ${{ secrets.LINGUA_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$LINGUA_DEBUG_KEYSTORE_BASE64" ]]; then
+            echo '::error::Missing LINGUA_DEBUG_KEYSTORE_BASE64. Restore the original signing key in repository Actions Secrets.'
+            exit 1
+          fi
+          install -d -m 700 "$HOME/.android"
+          printf '%s' "$LINGUA_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+
+      - name: Test, lint and build APK
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug -PlinguaBuildNumber="$GITHUB_RUN_NUMBER" --no-daemon --console=plain
+
+      - name: Verify and prepare update package
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          lingua_apk='app/build/outputs/apk/debug/app-debug.apk'
+          lingua_metadata='app/build/outputs/apk/debug/output-metadata.json'
+          lingua_output="$RUNNER_TEMP/lingua-apk"
+          mkdir -p "$lingua_output"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$lingua_apk" > "$lingua_output/signature.txt"
+          lingua_expected_cert="$(tr -d '[:space:]' < ci/debug-signing-cert.sha256)"
+          lingua_actual_cert="$(awk -F': ' '/^Signer #1 certificate SHA-256 digest:/ {print $2}' "$lingua_output/signature.txt")"
+          if [[ "$lingua_actual_cert" != "$lingua_expected_cert" ]]; then
+            echo '::error::APK signing certificate does not match the original Lingua debug certificate.'
+            exit 1
+          fi
+          lingua_expected_version=$((1000 + GITHUB_RUN_NUMBER))
+          jq -e --argjson version "$lingua_expected_version" '.applicationId == "com.lingua.english.debug" and .elements[0].versionCode == $version' "$lingua_metadata"
+          cp "$lingua_apk" "$lingua_output/Lingua-build-${GITHUB_RUN_NUMBER}.apk"
+          jq --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" '{applicationId, versionCode: .elements[0].versionCode, versionName: .elements[0].versionName, commit: $commit, runId: $run}' "$lingua_metadata" > "$lingua_output/build-info.json"
+          cd "$lingua_output"
+          sha256sum ./*.apk > SHA256SUMS
+
+      - name: Upload installable APK
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Lingua-build-${{ github.run_number }}
+          path: ${{ runner.temp }}/lingua-apk/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload check reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Lingua-checks-${{ github.run_number }}
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove signing key from runner
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: rm -f "$HOME/.android/debug.keystore"

@@ -28,17 +28,35 @@ class ChatRepository(
     suspend fun isConfigured(): Boolean = client.isConfigured()
 
     /**
+     * 开新话题: 立刻落一条 break 标记行 (role=break, 空内容, 不渲染)。
+     * 旧话题当场归档进「往期」, 对话页立即空白——不用等下一条消息。
+     * 当前话题本来就是空的就什么也不做。
+     */
+    suspend fun startNewTopic() {
+        val recent = chatDao.latest(1).firstOrNull() ?: return
+        if (recent.role == ROLE_BREAK) return
+        chatDao.insert(
+            ChatMessageEntity(
+                id = UUID.randomUUID().toString(),
+                role = ROLE_BREAK,
+                content = "",
+                createdAtEpochMs = System.currentTimeMillis(),
+                contextBreak = true,
+            )
+        )
+    }
+
+    /**
      * 发送一条用户消息并等助手回复。用户消息先落库 (失败也保留),
      * 助手回复成功后落库。上下文 = 最后一个「新话题」分界之后的消息, 上限 20 条。
      */
-    suspend fun send(text: String, newTopic: Boolean): String {
+    suspend fun send(text: String): String {
         val now = System.currentTimeMillis()
         val userMessage = ChatMessageEntity(
             id = UUID.randomUUID().toString(),
             role = "user",
             content = text.trim(),
             createdAtEpochMs = now,
-            contextBreak = newTopic,
         )
         chatDao.insert(userMessage)
         bumpDailyChat()
@@ -64,12 +82,12 @@ class ChatRepository(
      * 发送语音消息: 录音归档到 audioDir → 音频直发 Gemini → 模型转写回填到
      * 用户气泡 (点词查词照常用) + 回复落库。历史上下文用转写文字, 不重复传音频。
      */
-    suspend fun sendVoice(recorded: File, newTopic: Boolean): String {
+    suspend fun sendVoice(recorded: File): String {
         val system = Prompts.tutorSystem(
             profile = prefs.learnerProfile.first(),
             levelId = prefs.learnerLevel.first(),
         )
-        val context = if (newTopic) emptyList() else buildContext()
+        val context = buildContext()
 
         audioDir.mkdirs()
         val stored = File(audioDir, "${UUID.randomUUID()}.aac")
@@ -81,7 +99,6 @@ class ChatRepository(
             role = "user",
             content = "",
             createdAtEpochMs = System.currentTimeMillis(),
-            contextBreak = newTopic,
             audioPath = stored.path,
         )
         chatDao.insert(userMessage)
@@ -158,5 +175,8 @@ class ChatRepository(
 
     companion object {
         private const val MAX_CONTEXT = 20
+
+        /** 「新话题」分界标记行的 role。不参与渲染, 不进上下文。 */
+        const val ROLE_BREAK = "break"
     }
 }

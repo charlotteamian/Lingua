@@ -6,6 +6,11 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// GitHub builds keep the existing debug app identity and advance its version.
+val githubBuildNumber = providers.gradleProperty("linguaBuildNumber")
+    .map { it.toInt() }
+    .orNull
+
 android {
     namespace = "com.lingua.english"
     compileSdk = 35
@@ -14,8 +19,8 @@ android {
         applicationId = "com.lingua.english"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = githubBuildNumber?.let { 1_000 + it } ?: 1
+        versionName = "0.1.0" + (githubBuildNumber?.let { "-build.$it" } ?: "")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

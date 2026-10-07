@@ -39,7 +39,7 @@ class AppContainer(context: Context) {
     val chatApiClient: ChatApiClient by lazy { ChatApiClient(prefs) }
 
     /** Gemini Live 实时语音通话 (端到端语音, 对话页「通话」按钮)。 */
-    val geminiLive: GeminiLiveClient by lazy { GeminiLiveClient(prefs, appScope) }
+    val geminiLive: GeminiLiveClient by lazy { GeminiLiveClient(appContext, prefs, appScope) }
 
     val dictRepository: DictRepository by lazy {
         DictRepository(DictDatabaseHelper(appContext), OnlineDictClient())

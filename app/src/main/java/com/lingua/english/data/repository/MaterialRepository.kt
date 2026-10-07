@@ -32,6 +32,14 @@ data class ConvertedChunk(
     val note: String = "",
 )
 
+/** 用户从转换后的英文里自己挖出的句子或词块, 保存前暂存在页面状态里。 */
+data class CustomCollectionDraft(
+    val text: String,
+    val meaningZh: String = "",
+    val note: String = "",
+    val kind: String = ChunkEntity.KIND_SENTENCE,
+)
+
 class MaterialRepository(
     private val materialDao: MaterialDao,
     private val chunkDao: ChunkDao,
@@ -60,7 +68,12 @@ class MaterialRepository(
     }
 
     /** 保存转写结果: 语料落库, 选中的词块进复习队列 (今天到期)。 */
-    suspend fun save(sourceText: String, converted: ConvertedMaterial, keptChunks: List<ConvertedChunk>) {
+    suspend fun save(
+        sourceText: String,
+        converted: ConvertedMaterial,
+        keptChunks: List<ConvertedChunk>,
+        customCollections: List<CustomCollectionDraft> = emptyList(),
+    ) {
         val now = System.currentTimeMillis()
         val today = LocalDate.now()
         val materialId = UUID.randomUUID().toString()
@@ -73,15 +86,30 @@ class MaterialRepository(
                 createdAtEpochMs = now,
             )
         )
+        val cards = (
+            customCollections + keptChunks.map { chunk ->
+                CustomCollectionDraft(
+                    text = chunk.text,
+                    meaningZh = chunk.zh,
+                    note = chunk.note,
+                    kind = ChunkEntity.KIND_CHUNK,
+                )
+            }
+        )
+            .filter { it.text.isNotBlank() }
+            // 自选项排在前面, 与推荐项文字重复时保留用户编辑过的版本。
+            .distinctBy { it.text.trim().lowercase() }
         chunkDao.insertAll(
-            keptChunks.mapIndexed { index, chunk ->
+            cards.mapIndexed { index, card ->
                 ChunkEntity(
                     id = UUID.randomUUID().toString(),
                     materialId = materialId,
-                    text = chunk.text.trim(),
-                    meaningZh = chunk.zh.trim(),
-                    note = chunk.note.trim(),
-                    kind = ChunkEntity.KIND_CHUNK,
+                    text = card.text.trim(),
+                    meaningZh = card.meaningZh.trim(),
+                    note = card.note.trim(),
+                    kind = card.kind.takeIf {
+                        it == ChunkEntity.KIND_SENTENCE || it == ChunkEntity.KIND_CHUNK
+                    } ?: ChunkEntity.KIND_CHUNK,
                     createdAtEpochMs = now + index,
                     dueEpochDay = today.toEpochDay(),
                 )

@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +24,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lingua.english.ui.components.LinguaCard
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
+import com.lingua.english.ui.theme.LinguaPrimary
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun CorpusScreen(
@@ -48,7 +52,13 @@ fun CorpusScreen(
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
-                FilledTonalButton(onClick = onCompose) { Text("＋ 记一条") }
+                FilledTonalButton(
+                    onClick = onCompose,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = LinguaPrimary.copy(alpha = 0.15f),
+                        contentColor = LinguaPrimary,
+                    ),
+                ) { Text("＋ 记一条") }
             }
         }
 
@@ -88,7 +98,11 @@ fun CorpusScreen(
 
         items(materials, key = { it.id }) { material ->
             LinguaCard(modifier = Modifier.clickable { onOpenMaterial(material.id) }) {
-                Text(material.date, color = LinguaOnSurfaceMuted, style = MaterialTheme.typography.labelMedium)
+                // "2026-07-06" → "7月6日"; 解析失败原样显示
+                val dateLabel = runCatching {
+                    LocalDate.parse(material.date).format(DateTimeFormatter.ofPattern("M月d日"))
+                }.getOrDefault(material.date)
+                Text(dateLabel, color = LinguaOnSurfaceMuted, style = MaterialTheme.typography.labelMedium)
                 Text(
                     material.english,
                     style = MaterialTheme.typography.bodyLarge,

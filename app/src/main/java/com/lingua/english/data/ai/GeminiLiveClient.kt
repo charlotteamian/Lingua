@@ -1,12 +1,18 @@
 package com.lingua.english.data.ai
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
+import android.os.Build
 import android.util.Base64
 import com.lingua.english.data.prefs.SettingsPreferences
 import java.util.concurrent.TimeUnit
@@ -53,9 +59,14 @@ data class LiveUiState(
  * Gemini Live API (BidiGenerateContent over WebSocket): 端到端实时语音对话。
  * 麦克风 16kHz PCM 直传, 模型 24kHz PCM 直出——不走 STT/TTS 拼接 (官方不推荐且延迟高)。
  * 双方转写由服务端顺带返回 (input/outputAudioTranscription), 每轮结束回调落库。
- * 录音源用 VOICE_COMMUNICATION: 自带回声消除, 外放时不会把 Poppy 的声音又录进去。
+ *
+ * 外放回声消除 (公放时 Poppy 的声音别被当成用户说话打断自己): 通话期间把整机切成
+ * VoIP 通信模式 (MODE_IN_COMMUNICATION) + 播放走 USAGE_VOICE_COMMUNICATION + 显式选内置
+ * 扬声器路由——这样系统回声消除器 (来自 VOICE_COMMUNICATION 录音源) 才有「扬声器正在放
+ * 什么」的参考信号去抵消; 再显式挂上 AEC/降噪/AGC 效果器兜底。挂断时恢复原音频模式。
  */
 class GeminiLiveClient(
+    private val context: Context,
     private val prefs: SettingsPreferences,
     private val scope: CoroutineScope,
 ) {
@@ -76,6 +87,14 @@ class GeminiLiveClient(
     private var playbackQueue: Channel<ByteArray>? = null
     private var onExchange: ((String, String) -> Unit)? = null
 
+    // 通话期间的 VoIP 音频路由 (挂断恢复) + 录音链上的回声消除/降噪/增益效果器
+    private var audioManager: AudioManager? = null
+    private var prevAudioMode = AudioManager.MODE_NORMAL
+    private var prevSpeakerOn = false
+    private var aec: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var agc: AutomaticGainControl? = null
+
     private val userAcc = StringBuilder()
     private val modelAcc = StringBuilder()
 
@@ -84,6 +103,9 @@ class GeminiLiveClient(
         if (_state.value.phase != LivePhase.IDLE) return
         this.onExchange = onExchange
         _state.value = LiveUiState(phase = LivePhase.CONNECTING)
+        // 麦克风型前台服务必须趁 Activity 仍可见时启动。ChatScreen 的用户点击
+        // 路径已保证 RECORD_AUDIO 授权；配置检查失败时 fail() 会立即停止服务。
+        runCatching { LiveCallForegroundService.start(context) }
         scope.launch {
             val preset = AiApiPresets.byId(prefs.aiApiPreset.first())
             if (preset.id != "gemini") {
@@ -125,6 +147,14 @@ class GeminiLiveClient(
                         }
                         putJsonObject("inputAudioTranscription") {}
                         putJsonObject("outputAudioTranscription") {}
+                        // 学英语时句中会停下来想词：降低结束敏感度，并连续静默 2 秒后才算说完。
+                        putJsonObject("realtimeInputConfig") {
+                            putJsonObject("automaticActivityDetection") {
+                                put("disabled", false)
+                                put("endOfSpeechSensitivity", "END_SENSITIVITY_LOW")
+                                put("silenceDurationMs", LEARNER_SILENCE_MS)
+                            }
+                        }
                     }
                 }
                 webSocket.send(setup.toString())
@@ -197,13 +227,17 @@ class GeminiLiveClient(
 
     @SuppressLint("MissingPermission") // UI 层拿到 RECORD_AUDIO 后才会 start
     private fun startAudioIo() {
-        // 播放: 24kHz PCM16 单声道流式
+        // 先把整机切进 VoIP 通信模式 + 外放, 回声消除才有扬声器输出作参考
+        enterCommunicationRoute()
+
+        // 播放: 24kHz PCM16 单声道流式。走 VOICE_COMMUNICATION 而非 MEDIA——回声消除只抵消
+        // 通信路径上放出去的声音, 走 MEDIA 的话公放时 Poppy 的声音会漏回麦克风被当成插话。
         val outMin = AudioTrack.getMinBufferSize(
             OUT_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
         )
         val track = AudioTrack(
             AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build(),
             AudioFormat.Builder()
@@ -240,6 +274,8 @@ class GeminiLiveClient(
             return
         }
         audioRecord = record
+        // 显式挂回声消除/降噪/增益: VOICE_COMMUNICATION 通常自带, 但部分机型要手动开才生效
+        attachAudioEffects(record.audioSessionId)
         recordJob = scope.launch(Dispatchers.IO) {
             runCatching {
                 record.startRecording()
@@ -277,6 +313,79 @@ class GeminiLiveClient(
         _state.value = _state.value.copy(speaking = false)
     }
 
+    /** 通话开始: 切 VoIP 通信模式; 无耳机时强制外放 (让回声消除拿到扬声器输出作参考)。 */
+    private fun enterCommunicationRoute() {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        audioManager = am
+        prevAudioMode = am.mode
+        @Suppress("DEPRECATION")
+        prevSpeakerOn = am.isSpeakerphoneOn
+        runCatching { am.mode = AudioManager.MODE_IN_COMMUNICATION }
+        // 接了耳机 (有线/蓝牙) 就别抢外放——耳机本就没回声问题, 强开公放反而吵到用户
+        if (hasHeadset(am)) return
+        // 免提: 通信模式默认可能走听筒, 显式选内置扬声器保持公放, 回声消除也以它为参考
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching {
+                am.availableCommunicationDevices
+                    .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    ?.let { am.setCommunicationDevice(it) }
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            runCatching { am.isSpeakerphoneOn = true }
+        }
+    }
+
+    private fun hasHeadset(am: AudioManager): Boolean = runCatching {
+        am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+            it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+        }
+    }.getOrDefault(false)
+
+    /** 挂断: 还原音频模式与外放开关, 别影响后续系统 TTS / 其它 app。 */
+    private fun restoreCommunicationRoute() {
+        val am = audioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { am.clearCommunicationDevice() }
+        } else {
+            @Suppress("DEPRECATION")
+            runCatching { am.isSpeakerphoneOn = prevSpeakerOn }
+        }
+        runCatching { am.mode = prevAudioMode }
+        audioManager = null
+    }
+
+    private fun attachAudioEffects(sessionId: Int) {
+        runCatching {
+            if (AcousticEchoCanceler.isAvailable()) {
+                aec = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
+            }
+        }
+        runCatching {
+            if (NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = NoiseSuppressor.create(sessionId)?.apply { enabled = true }
+            }
+        }
+        runCatching {
+            if (AutomaticGainControl.isAvailable()) {
+                agc = AutomaticGainControl.create(sessionId)?.apply { enabled = true }
+            }
+        }
+    }
+
+    private fun releaseAudioEffects() {
+        runCatching { aec?.release() }
+        runCatching { noiseSuppressor?.release() }
+        runCatching { agc?.release() }
+        aec = null
+        noiseSuppressor = null
+        agc = null
+    }
+
     private fun fail(message: String) = stopInternal(message)
 
     private fun stopInternal(error: String?) {
@@ -287,6 +396,7 @@ class GeminiLiveClient(
         recordJob = null
         playJob?.cancel()
         playJob = null
+        releaseAudioEffects()
         runCatching { audioRecord?.stop() }
         runCatching { audioRecord?.release() }
         audioRecord = null
@@ -295,7 +405,9 @@ class GeminiLiveClient(
         runCatching { audioTrack?.stop() }
         runCatching { audioTrack?.release() }
         audioTrack = null
+        restoreCommunicationRoute()
         _state.value = LiveUiState(error = error)
+        LiveCallForegroundService.stop(context)
     }
 
     companion object {
@@ -305,5 +417,6 @@ class GeminiLiveClient(
             "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
         private const val IN_RATE = 16_000
         private const val OUT_RATE = 24_000
+        private const val LEARNER_SILENCE_MS = 2_000
     }
 }

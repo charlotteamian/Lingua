@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lingua.english.data.local.entity.ChunkEntity
+import com.lingua.english.ui.components.CollectionEditorSheet
+import com.lingua.english.ui.components.LinguaChip
 import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 
 /**
@@ -33,6 +35,7 @@ import com.lingua.english.ui.theme.LinguaOnSurfaceMuted
 fun LibraryScreen(vm: ReviewViewModel, onBack: () -> Unit) {
     val all by vm.allChunks.collectAsStateWithLifecycle()
     var kindFilter by remember { mutableStateOf<String?>(null) } // null = 全部
+    var editing by remember { mutableStateOf<ChunkEntity?>(null) }
 
     val shown = remember(all, kindFilter) {
         all.filter { kindFilter == null || it.kind == kindFilter }
@@ -62,17 +65,17 @@ fun LibraryScreen(vm: ReviewViewModel, onBack: () -> Unit) {
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
+                LinguaChip(
                     selected = kindFilter == null,
                     onClick = { kindFilter = null },
-                    label = { Text("全部 ${all.size}", maxLines = 1) },
+                    label = "全部 ${all.size}",
                     modifier = Modifier.weight(1f),
                 )
                 KIND_OPTIONS.forEach { (kind, label) ->
-                    FilterChip(
+                    LinguaChip(
                         selected = kindFilter == kind,
                         onClick = { kindFilter = kind },
-                        label = { Text("$label ${all.count { it.kind == kind }}", maxLines = 1) },
+                        label = "$label ${all.count { it.kind == kind }}",
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -90,7 +93,32 @@ fun LibraryScreen(vm: ReviewViewModel, onBack: () -> Unit) {
         }
 
         items(shown, key = { it.id }) { chunk ->
-            ChunkRow(chunk, onSpeak = vm::speak, onDelete = vm::delete)
+            ChunkRow(
+                chunk,
+                onSpeak = vm::speak,
+                onEdit = { editing = it },
+                onDelete = vm::delete,
+            )
         }
+    }
+
+    editing?.let { chunk ->
+        CollectionEditorSheet(
+            title = "编辑收藏",
+            initialText = chunk.text,
+            initialMeaningZh = chunk.meaningZh,
+            initialNote = chunk.note,
+            initialKind = chunk.kind,
+            allowedKinds = listOf(
+                ChunkEntity.KIND_SENTENCE,
+                ChunkEntity.KIND_CHUNK,
+                ChunkEntity.KIND_WORD,
+            ),
+            onSave = { text, meaningZh, note, kind ->
+                vm.updateCollection(chunk, text, meaningZh, note, kind)
+                editing = null
+            },
+            onDismiss = { editing = null },
+        )
     }
 }

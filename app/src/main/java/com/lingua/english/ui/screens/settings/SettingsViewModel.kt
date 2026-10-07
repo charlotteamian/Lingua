@@ -31,13 +31,14 @@ class SettingsViewModel(
         source.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), default)
 
     val aiPreset = flowOf(prefs.aiApiPreset, "deepseek")
+    val appFont = flowOf(prefs.appFont, "comfortable")
     val aiBaseUrl = flowOf(prefs.aiApiBaseUrl, "")
     val aiKey = flowOf(prefs.aiApiKey, "")
     val aiModel = flowOf(prefs.aiApiModel, "")
     val ttsRate = flowOf(prefs.ttsRate, 0.9f)
     val ttsEngine = flowOf(prefs.ttsEngine, "system")
     val ttsVoice = flowOf(prefs.ttsVoice, "Kore")
-    val ttsModel = flowOf(prefs.ttsModel, "gemini-3.1-flash-tts")
+    val ttsModel = flowOf(prefs.ttsModel, SettingsPreferences.DEFAULT_TTS_MODEL)
     val liveModel = flowOf(prefs.liveModel, "gemini-3.1-flash-live-preview")
     val ttsStyle = flowOf(prefs.ttsStyle, "")
     val autoRead = flowOf(prefs.autoReadReplies, false)
@@ -63,6 +64,7 @@ class SettingsViewModel(
     }
 
     fun setPreset(id: String) = viewModelScope.launch { prefs.setAiApiPreset(id) }
+    fun setAppFont(id: String) = viewModelScope.launch { prefs.setAppFont(id) }
     fun setBaseUrl(url: String) = viewModelScope.launch { prefs.setAiApiBaseUrl(url) }
     fun setKey(key: String) = viewModelScope.launch { prefs.setAiApiKey(key) }
     fun setModel(model: String) = viewModelScope.launch { prefs.setAiApiModel(model) }
