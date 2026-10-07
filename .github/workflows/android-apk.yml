@@ -77,7 +77,8 @@ jobs:
           lingua_expected_version=$((1000 + GITHUB_RUN_NUMBER))
           jq -e --argjson version "$lingua_expected_version" '.applicationId == "com.lingua.english.debug" and .elements[0].versionCode == $version' "$lingua_metadata"
           cp "$lingua_apk" "$lingua_output/Lingua-build-${GITHUB_RUN_NUMBER}.apk"
-          jq --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" '{applicationId, versionCode: .elements[0].versionCode, versionName: .elements[0].versionName, commit: $commit, runId: $run}' "$lingua_metadata" > "$lingua_output/build-info.json"
+          lingua_apk_hash="$(sha256sum "$lingua_apk" | awk '{print $1}')"
+          jq --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" --arg apk "Lingua-build-${GITHUB_RUN_NUMBER}.apk" --arg hash "$lingua_apk_hash" --arg cert "$lingua_actual_cert" '{applicationId, versionCode: .elements[0].versionCode, versionName: .elements[0].versionName, apkName: $apk, apkSha256: $hash, signingCertificateSha256: $cert, commit: $commit, runId: $run}' "$lingua_metadata" > "$lingua_output/build-info.json"
           cd "$lingua_output"
           sha256sum ./*.apk > SHA256SUMS
 
@@ -106,3 +107,42 @@ jobs:
       - name: Remove signing key from runner
         if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: rm -f "$HOME/.android/debug.keystore"
+
+  release:
+    name: Publish private app update
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: Lingua-build-${{ github.run_number }}
+          path: update-package
+
+      - name: Publish complete release for in-app updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          lingua_tag="build-${GITHUB_RUN_NUMBER}"
+          lingua_version="$(jq -r '.versionName' update-package/build-info.json)"
+          lingua_code="$(jq -r '.versionCode' update-package/build-info.json)"
+          lingua_latest='true'
+          lingua_previous_tag="$(gh api "repos/$GH_REPO/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          if [[ -n "$lingua_previous_tag" ]]; then
+            mkdir -p previous-update
+            gh release download "$lingua_previous_tag" --pattern build-info.json --dir previous-update
+            lingua_previous_code="$(jq -r '.versionCode' previous-update/build-info.json)"
+            if (( lingua_code < lingua_previous_code )); then lingua_latest='false'; fi
+          fi
+          printf 'Lingua %s\n\n源码提交：%s\n\n测试、Lint、安装包签名与版本核验通过。安装包与本机调试版使用相同签名。\n\n在设置 → 应用更新中配置 Lingua 仓库的 Contents 只读 Token，即可检查、下载并交给 Android 确认安装。\n' "$lingua_version" "$GITHUB_SHA" > "$RUNNER_TEMP/lingua-release-notes.md"
+          if ! gh release view "$lingua_tag" >/dev/null 2>&1; then
+            gh release create "$lingua_tag" --draft --target "$GITHUB_SHA" --title "Lingua $lingua_version" --notes-file "$RUNNER_TEMP/lingua-release-notes.md"
+          fi
+          gh release upload "$lingua_tag" update-package/*.apk update-package/build-info.json update-package/SHA256SUMS update-package/signature.txt --clobber
+          gh release edit "$lingua_tag" --draft=false --latest="$lingua_latest"

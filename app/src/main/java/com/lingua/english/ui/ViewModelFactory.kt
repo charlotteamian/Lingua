@@ -45,6 +45,7 @@ class LinguaViewModelFactory(private val container: AppContainer) : ViewModelPro
             SettingsViewModel(
                 container.prefs, container.chatApiClient, container.chatRepository,
                 container.dictRepository, container.tts, container.geminiTts.lastError,
+                container.appUpdates,
             ) as T
 
         modelClass.isAssignableFrom(StatsViewModel::class.java) ->

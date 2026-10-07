@@ -8,7 +8,7 @@
 
 1. 打开仓库，在 **Code** 里找到要修改的文件，点铅笔 **Edit this file**。
 2. 修改后点 **Commit changes**，提交到 `main`。需要同时修改多个文件时，可在仓库页面按 `.` 打开 `github.dev` 编辑器，再提交并推送。
-3. 打开 [Actions → Android APK](https://github.com/charlotteamian/Lingua/actions/workflows/android-apk.yml)，等待本次运行出现绿色成功标记。
+3. 打开 [Actions → Android APK](https://github.com/charlotteamian/Lingua/actions/workflows/android-apk.yml)，等待本次运行出现绿色成功标记。成功后会自动发布到私有 [Releases](https://github.com/charlotteamian/Lingua/releases/latest)，供 App 检查更新。
 4. 点进这次运行，在 **Artifacts** 下载 `Lingua-build-编号`，解压后得到 APK。另附 `SHA256SUMS`、签名信息和构建信息。
 5. 把 APK 发到手机，安装到现有 Lingua 调试版上。同包名、同签名且版本号不低于已安装版本时，Android 支持覆盖安装并保留应用数据；不要先卸载。
 
@@ -18,9 +18,21 @@
 
 GitHub 文件编辑和下载操作参考：[编辑文件](https://docs.github.com/en/repositories/working-with-files/managing-files/editing-files)、[下载构建产物](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)。
 
+## 在 App 内更新
+
+第一次需要下载安装包含更新入口的 APK；以后进入 **设置 → 应用更新**：
+
+1. 点「在 GitHub 创建只读 Token」，登录 `charlotteamian`。Repository access 选 **Only select repositories → Lingua**，Repository permissions 的 **Contents** 选 **Read-only**，创建后把 Token 贴到 App。生成链接已经预填账户和只读权限，仍需自己选择 Lingua 仓库。Token 只在手机的 Android Keystore 加密存储，不进入源码、APK 或手机系统备份。
+2. 点「检查更新」。如果 GitHub 最新版本的版本号高于当前版本，会出现「下载并安装新版本」。
+3. 下载完成后，App 检查完整文件的 SHA-256、应用包名、版本号和签名，并打开 Android 安装确认页。第一次可能需要允许 Lingua「安装未知应用」。安装会覆盖同签名的现有调试版，学习数据保留。
+
+Token 过期或缺权限时，设置页会显示具体原因，可以重新创建并替换。仓库、Releases 和安装包保持私有。GitHub 的只读权限要求参考：[私有 Release 访问](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)、[Token 设置](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)。
+
 ## 自动构建与签名
 
 工作流 `.github/workflows/android-apk.yml` 在 `main` 更新、Pull Request 和手动运行时执行单元测试、Android Lint 和 Debug APK 编译。只有 `main` 的非 Pull Request 运行会使用固定签名并提供可下载 APK。
+
+检查通过后，独立发布任务将完整 APK、`build-info.json`、校验和与签名信息一起发布到 `build-运行编号` 的私有 Release，再设为最新版本。App 读取结构化更新信息；较早构建的重跑不会把最新版本回退。创建 Release 的写权限仅授予发布任务。
 
 - 安装包名：`com.lingua.english.debug`，与本项目原有本机调试版一致。
 - 固定签名：沿用建立仓库时本机的 `~/.android/debug.keystore`，存放在 GitHub 加密 Secret `LINGUA_DEBUG_KEYSTORE_BASE64`，不会提交到源码。

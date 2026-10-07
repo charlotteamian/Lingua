@@ -8,15 +8,33 @@ import com.lingua.english.data.prefs.SettingsPreferences
 import com.lingua.english.data.repository.ChatRepository
 import com.lingua.english.data.tts.TtsProvider
 import com.lingua.english.data.tts.TtsStatus
+import com.lingua.english.data.update.AppUpdateRepository
+import com.lingua.english.data.update.GitHubUpdate
+import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class ApiTestState(val testing: Boolean = false, val result: String? = null, val ok: Boolean = false)
+enum class UpdateStage { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, READY, ERROR }
+data class AppUpdateState(
+    val stage: UpdateStage = UpdateStage.IDLE,
+    val release: GitHubUpdate? = null,
+    val progress: Int = 0,
+    val apk: File? = null,
+    val message: String? = null,
+    val installationPending: Boolean = false,
+) {
+    val busy: Boolean get() = stage == UpdateStage.CHECKING || stage == UpdateStage.DOWNLOADING
+}
 
 class SettingsViewModel(
     private val prefs: SettingsPreferences,
@@ -25,6 +43,7 @@ class SettingsViewModel(
     private val dict: DictRepository,
     val tts: TtsProvider,
     val cloudTtsError: StateFlow<String?>,
+    private val appUpdates: AppUpdateRepository,
 ) : ViewModel() {
 
     private fun <T> flowOf(source: kotlinx.coroutines.flow.Flow<T>, default: T): StateFlow<T> =
@@ -49,6 +68,15 @@ class SettingsViewModel(
 
     val ttsStatus: StateFlow<TtsStatus> = tts.status
 
+    private val _githubToken = MutableStateFlow("")
+    val githubToken: StateFlow<String> = _githubToken
+    private val _githubTokenLoaded = MutableStateFlow(false)
+    val githubTokenLoaded: StateFlow<Boolean> = _githubTokenLoaded
+    private val _appUpdate = MutableStateFlow(AppUpdateState())
+    val appUpdate: StateFlow<AppUpdateState> = _appUpdate
+    private val tokenMutex = Mutex()
+    private var tokenSave: Job? = null
+
     private val _apiTest = MutableStateFlow(ApiTestState())
     val apiTest: StateFlow<ApiTestState> = _apiTest
 
@@ -57,10 +85,84 @@ class SettingsViewModel(
 
     init {
         viewModelScope.launch {
+            try {
+                _githubToken.value = withContext(Dispatchers.IO) { appUpdates.tokenStore.read() }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _appUpdate.value = AppUpdateState(UpdateStage.ERROR, message = "无法读取更新授权，请重新填写 GitHub Token")
+            } finally {
+                _githubTokenLoaded.value = true
+            }
+        }
+        viewModelScope.launch {
             _dictWords.value = withContext(Dispatchers.IO) {
                 runCatching { dict.offlineWordCount() }.getOrDefault(0)
             }
         }
+    }
+
+    fun setGitHubToken(value: String) {
+        if (_appUpdate.value.busy || !_githubTokenLoaded.value) return
+        _githubToken.value = value.trim()
+        _appUpdate.value = AppUpdateState()
+        tokenSave?.cancel()
+        tokenSave = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    tokenMutex.withLock { appUpdates.tokenStore.write(_githubToken.value) }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _appUpdate.value = AppUpdateState(UpdateStage.ERROR, message = "GitHub Token 未能保存，请重新填写")
+            }
+        }
+    }
+
+    fun checkAppUpdate() {
+        if (_appUpdate.value.busy) return
+        _appUpdate.value = AppUpdateState(UpdateStage.CHECKING)
+        viewModelScope.launch {
+            try {
+                tokenSave?.join()
+                val release = appUpdates.check(_githubToken.value)
+                _appUpdate.value = if (release == null) AppUpdateState(UpdateStage.CURRENT)
+                else AppUpdateState(UpdateStage.AVAILABLE, release = release)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _appUpdate.value = AppUpdateState(UpdateStage.ERROR, message = error.message ?: "检查更新失败，请稍后重试")
+            }
+        }
+    }
+
+    fun downloadAppUpdate() {
+        val previous = _appUpdate.value
+        val release = previous.release ?: return
+        if (previous.busy) return
+        _appUpdate.value = AppUpdateState(UpdateStage.DOWNLOADING, release = release)
+        viewModelScope.launch {
+            try {
+                val apk = appUpdates.download(release, _githubToken.value) { progress ->
+                    _appUpdate.value = _appUpdate.value.copy(progress = progress)
+                }
+                _appUpdate.value = AppUpdateState(UpdateStage.READY, release = release, apk = apk, installationPending = true)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _appUpdate.value = AppUpdateState(UpdateStage.ERROR, release = release,
+                    message = error.message ?: "下载更新失败，请稍后重试")
+            }
+        }
+    }
+
+    fun appInstallMessage(message: String) {
+        _appUpdate.value = _appUpdate.value.copy(message = message)
+    }
+
+    fun consumeAppInstallRequest() {
+        _appUpdate.value = _appUpdate.value.copy(installationPending = false)
     }
 
     fun setPreset(id: String) = viewModelScope.launch { prefs.setAiApiPreset(id) }

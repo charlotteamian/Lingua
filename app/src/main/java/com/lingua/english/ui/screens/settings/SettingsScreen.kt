@@ -110,6 +110,8 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
             }
         }
 
+        item { AppUpdateCard(vm) }
+
         item {
             LinguaCard {
                 Text("界面字体", style = MaterialTheme.typography.titleMedium)

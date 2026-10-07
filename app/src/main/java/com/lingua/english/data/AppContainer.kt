@@ -20,6 +20,7 @@ import com.lingua.english.data.tts.GeminiTtsProvider
 import com.lingua.english.data.tts.RoutingTtsProvider
 import com.lingua.english.data.tts.SystemTtsProvider
 import com.lingua.english.data.tts.TtsProvider
+import com.lingua.english.data.update.AppUpdateRepository
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,7 @@ class AppContainer(context: Context) {
 
     val database: LinguaDatabase by lazy { LinguaDatabase.get(appContext) }
     val prefs: SettingsPreferences by lazy { SettingsPreferences(appContext) }
+    val appUpdates: AppUpdateRepository by lazy { AppUpdateRepository(appContext) }
 
     val chatApiClient: ChatApiClient by lazy { ChatApiClient(prefs) }
 
