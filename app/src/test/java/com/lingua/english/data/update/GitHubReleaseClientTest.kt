@@ -33,58 +33,61 @@ class GitHubReleaseClientTest {
         server.enqueue(MockResponse().setBody(Json.encodeToString(info)))
     }
 
-    @Test fun readsPrivateReleaseAndSelectsNewerVersion() {
+    @Test fun readsPublicReleaseWithoutCredentialsAndSelectsNewerVersion() {
         enqueueRelease()
-        val update = client.check("test-token", 1001, manifest.applicationId)!!
+        val update = client.check(1001, manifest.applicationId)!!
         assertEquals(1008, update.manifest.versionCode)
         assertEquals(9L, update.assetId)
         val latest = server.takeRequest()
         assertEquals("/repos/charlotteamian/Lingua/releases/latest", latest.path)
-        assertEquals("Bearer test-token", latest.getHeader("Authorization"))
+        assertNull(latest.getHeader("Authorization"))
+        assertNull(latest.getHeader("Cookie"))
         val asset = server.takeRequest()
         assertEquals("/repos/charlotteamian/Lingua/releases/assets/7", asset.path)
         assertEquals("application/octet-stream", asset.getHeader("Accept"))
+        assertNull(asset.getHeader("Authorization"))
+        assertNull(asset.getHeader("Cookie"))
     }
 
     @Test fun doesNotOfferEqualOrOlderVersion() {
         for (installed in listOf(1008, 1009)) {
             enqueueRelease()
-            assertNull(client.check("test-token", installed, manifest.applicationId))
+            assertNull(client.check(installed, manifest.applicationId))
         }
     }
 
     @Test fun rejectsOtherApplicationPackage() {
         enqueueRelease(manifest.copy(applicationId = "com.other.app"))
-        assertThrows(IllegalArgumentException::class.java) { client.check("test-token", 1, manifest.applicationId) }
+        assertThrows(IllegalArgumentException::class.java) { client.check(1, manifest.applicationId) }
     }
 
     @Test fun rejectsPathInApkName() {
         enqueueRelease(manifest.copy(apkName = "../Lingua-build-8.apk"))
-        assertThrows(IllegalArgumentException::class.java) { client.check("test-token", 1, manifest.applicationId) }
+        assertThrows(IllegalArgumentException::class.java) { client.check(1, manifest.applicationId) }
     }
 
     @Test fun refusesReleaseWithoutIntegrityDigest() {
         enqueueRelease(manifest.copy(apkSha256 = ""))
-        assertThrows(IllegalArgumentException::class.java) { client.check("test-token", 1, manifest.applicationId) }
+        assertThrows(IllegalArgumentException::class.java) { client.check(1, manifest.applicationId) }
     }
 
-    @Test fun givesReadableExpiredTokenError() {
+    @Test fun doesNotAskForCredentialsWhenPublicAccessFails() {
         server.enqueue(MockResponse().setResponseCode(401))
-        val error = assertThrows(IOException::class.java) { client.check("test-token", 1, manifest.applicationId) }
-        assertTrue(error.message!!.contains("已过期"))
-        assertFalse(error.message!!.contains("test-token"))
+        val error = assertThrows(IOException::class.java) { client.check(1, manifest.applicationId) }
+        assertTrue(error.message!!.contains("公开更新"))
+        assertFalse(error.message!!.contains("Token"))
     }
 
-    @Test fun explainsPrivateRepositoryAccessError() {
+    @Test fun explainsMissingPublicRelease() {
         server.enqueue(MockResponse().setResponseCode(404))
-        val error = assertThrows(IOException::class.java) { client.check("test-token", 1, manifest.applicationId) }
-        assertTrue(error.message!!.contains("Contents"))
+        val error = assertThrows(IOException::class.java) { client.check(1, manifest.applicationId) }
+        assertTrue(error.message!!.contains("公开版本"))
     }
 
     @Test fun refusesUnexpectedRedirectBeforeContactingAnotherHost() {
         server.enqueue(MockResponse().setBody("""{"assets":[{"id":7,"name":"build-info.json"}]}"""))
         server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "https://untrusted.example/steal"))
-        assertThrows(IllegalArgumentException::class.java) { client.check("test-token", 1, manifest.applicationId) }
+        assertThrows(IllegalArgumentException::class.java) { client.check(1, manifest.applicationId) }
         assertEquals(2, server.requestCount)
     }
 
@@ -94,7 +97,7 @@ class GitHubReleaseClientTest {
         assertFalse(GitHubReleaseClient.isTrustedAssetUrl("https://release-assets.githubusercontent.com.evil.example/file".toHttpUrl()))
     }
 
-    @Test fun neverForwardsTokenToSignedAssetRedirect() {
+    @Test fun followsTrustedAssetRedirectWithoutCredentials() {
         val requests = mutableListOf<Request>()
         val transport = OkHttpClient.Builder().addInterceptor { chain ->
             val request = chain.request()
@@ -110,9 +113,8 @@ class GitHubReleaseClientTest {
                 else -> response.code(200).body(Json.encodeToString(manifest).toResponseBody())
             }.build()
         }.build()
-        assertNotNull(GitHubReleaseClient(client = transport).check("test-token", 1, manifest.applicationId))
-        assertEquals("Bearer test-token", requests[1].header("Authorization"))
-        assertNull(requests[2].header("Authorization"))
+        assertNotNull(GitHubReleaseClient(client = transport).check(1, manifest.applicationId))
+        assertTrue(requests.all { it.header("Authorization") == null && it.header("Cookie") == null })
         assertEquals("release-assets.githubusercontent.com", requests[2].url.host)
     }
 
@@ -121,9 +123,12 @@ class GitHubReleaseClientTest {
         val file = Files.createTempFile("lingua-download-", ".apk").toFile()
         try {
             var received = 0L
-            client.download(GitHubUpdate(manifest, 9, apk.size.toLong()), "test-token", file) { received = it }
+            client.download(GitHubUpdate(manifest, 9, apk.size.toLong()), file) { received = it }
             assertArrayEquals(apk, file.readBytes())
             assertEquals(apk.size.toLong(), received)
+            val request = server.takeRequest()
+            assertNull(request.getHeader("Authorization"))
+            assertNull(request.getHeader("Cookie"))
         } finally { file.delete() }
     }
 
@@ -132,7 +137,7 @@ class GitHubReleaseClientTest {
         val file = Files.createTempFile("lingua-download-", ".apk").toFile()
         try {
             assertThrows(IllegalArgumentException::class.java) {
-                client.download(GitHubUpdate(manifest.copy(apkSha256 = "0".repeat(64)), 9, apk.size.toLong()), "test-token", file) {}
+                client.download(GitHubUpdate(manifest.copy(apkSha256 = "0".repeat(64)), 9, apk.size.toLong()), file) {}
             }
         } finally { file.delete() }
     }
@@ -142,16 +147,15 @@ class GitHubReleaseClientTest {
         val file = Files.createTempFile("lingua-download-", ".apk").toFile()
         try {
             assertThrows(IllegalArgumentException::class.java) {
-                client.download(GitHubUpdate(manifest, 9, apk.size.toLong()), "test-token", file) {}
+                client.download(GitHubUpdate(manifest, 9, apk.size.toLong()), file) {}
             }
         } finally { file.delete() }
     }
 
-    @Test fun rejectsMalformedTokenWithoutEchoingIt() {
-        val error = assertThrows(IllegalArgumentException::class.java) {
-            client.check("token\nsecret", 1, manifest.applicationId)
-        }
-        assertFalse(error.message!!.contains("secret"))
-        assertEquals(0, server.requestCount)
+    @Test fun explainsAnonymousRateLimit() {
+        server.enqueue(MockResponse().setResponseCode(403).setHeader("X-RateLimit-Remaining", "0"))
+        val error = assertThrows(IOException::class.java) { client.check(1, manifest.applicationId) }
+        assertTrue(error.message!!.contains("限额"))
+        assertFalse(error.message!!.contains("Token"))
     }
 }

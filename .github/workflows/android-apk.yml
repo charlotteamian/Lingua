@@ -109,7 +109,7 @@ jobs:
         run: rm -f "$HOME/.android/debug.keystore"
 
   release:
-    name: Publish private app update
+    name: Publish app update
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
@@ -140,7 +140,7 @@ jobs:
             lingua_previous_code="$(jq -r '.versionCode' previous-update/build-info.json)"
             if (( lingua_code < lingua_previous_code )); then lingua_latest='false'; fi
           fi
-          printf 'Lingua %s\n\n源码提交：%s\n\n测试、Lint、安装包签名与版本核验通过。安装包与本机调试版使用相同签名。\n\n在设置 → 应用更新中配置 Lingua 仓库的 Contents 只读 Token，即可检查、下载并交给 Android 确认安装。\n' "$lingua_version" "$GITHUB_SHA" > "$RUNNER_TEMP/lingua-release-notes.md"
+          printf 'Lingua %s\n\n源码提交：%s\n\n测试、Lint、安装包签名与版本核验通过。安装包与本机调试版使用相同签名。\n\n首次请下载安装此 APK；以后在设置 → 应用更新中检查、下载并交给 Android 确认安装，无需登录 GitHub 或填写 Token。\n' "$lingua_version" "$GITHUB_SHA" > "$RUNNER_TEMP/lingua-release-notes.md"
           if ! gh release view "$lingua_tag" >/dev/null 2>&1; then
             gh release create "$lingua_tag" --draft --target "$GITHUB_SHA" --title "Lingua $lingua_version" --notes-file "$RUNNER_TEMP/lingua-release-notes.md"
           fi

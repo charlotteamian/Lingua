@@ -35,7 +35,7 @@ private data class GitHubRelease(
 @Serializable
 private data class GitHubAsset(val id: Long, val name: String, val size: Long = 0)
 
-/** Only the GitHub API receives the token; signed asset redirects are requested without it. */
+/** Public releases and their assets are read without account credentials. */
 class GitHubReleaseClient(
     private val apiBase: HttpUrl = "https://api.github.com/".toHttpUrl(),
     client: OkHttpClient = OkHttpClient.Builder()
@@ -47,16 +47,15 @@ class GitHubReleaseClient(
     private val http = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun check(token: String, currentVersion: Int, applicationId: String): GitHubUpdate? {
-        require(token.isNotBlank()) { "请先填写 Lingua 私有仓库的 GitHub 只读 Token" }
-        val release = apiRequest("releases/latest", token, "application/vnd.github+json").use { response ->
+    fun check(currentVersion: Int, applicationId: String): GitHubUpdate? {
+        val release = apiRequest("releases/latest", "application/vnd.github+json").use { response ->
             checkResponse(response)
             json.decodeFromString<GitHubRelease>(readSmallBody(response, 1024 * 1024))
         }
         require(!release.draft && !release.prerelease) { "目前没有可安装的正式更新" }
         val info = release.assets.singleOrNull { it.name == "build-info.json" }
             ?: throw IOException("这个 GitHub 版本缺少更新信息，请重新运行 Android APK 工作流")
-        val manifest = assetRequest(info.id, token).use { response ->
+        val manifest = assetRequest(info.id).use { response ->
             json.decodeFromString<AppUpdateManifest>(readSmallBody(response, 64 * 1024))
         }
         validateManifest(manifest, applicationId)
@@ -67,10 +66,10 @@ class GitHubReleaseClient(
         return GitHubUpdate(manifest, apk.id, apk.size)
     }
 
-    fun download(update: GitHubUpdate, token: String, destination: File, onProgress: (Long) -> Unit) {
+    fun download(update: GitHubUpdate, destination: File, onProgress: (Long) -> Unit) {
         require(update.bytes in 1..MAX_APK_BYTES) { "更新安装包大小异常" }
         val digest = MessageDigest.getInstance("SHA-256")
-        assetRequest(update.assetId, token).use { response ->
+        assetRequest(update.assetId).use { response ->
             val body = response.body ?: throw IOException("GitHub 返回了空安装包")
             body.byteStream().use { input ->
                 destination.outputStream().use { output ->
@@ -94,20 +93,18 @@ class GitHubReleaseClient(
         }
     }
 
-    private fun apiRequest(path: String, token: String, accept: String): Response {
-        require(token.isNotBlank() && token.trim().all { it.code in 33..126 }) { "GitHub Token 格式不正确，请重新粘贴" }
+    private fun apiRequest(path: String, accept: String): Response {
         val url = apiBase.resolve("repos/$REPOSITORY/$path") ?: error("无效的 GitHub API 地址")
         return http.newCall(Request.Builder().url(url)
-            .header("Authorization", "Bearer ${token.trim()}")
             .header("Accept", accept)
             .header("X-GitHub-Api-Version", "2026-03-10")
             .header("Cache-Control", "no-cache")
             .build()).execute()
     }
 
-    private fun assetRequest(id: Long, token: String): Response {
+    private fun assetRequest(id: Long): Response {
         require(id > 0) { "GitHub 安装包地址无效" }
-        var response = apiRequest("releases/assets/$id", token, "application/octet-stream")
+        var response = apiRequest("releases/assets/$id", "application/octet-stream")
         repeat(4) {
             if (response.code !in REDIRECT_CODES) {
                 try {
@@ -130,11 +127,11 @@ class GitHubReleaseClient(
     private fun checkResponse(response: Response) {
         if (response.isSuccessful) return
         throw IOException(when (response.code) {
-            401 -> "GitHub Token 无效或已过期，请重新创建"
+            401 -> "GitHub 暂时无法提供公开更新，请稍后重试"
             403 -> if (response.header("X-RateLimit-Remaining") == "0")
                 "GitHub 请求暂时达到限额，请稍后再试"
-            else "GitHub Token 缺少 Contents 只读权限"
-            404 -> "无法读取私有版本：请确认 Token 只选了 Lingua 且具有 Contents 只读权限，仓库中也已发布版本"
+            else "GitHub 暂时拒绝了更新请求，请稍后重试"
+            404 -> "暂未找到可下载的公开版本，请稍后重试"
             else -> "GitHub 请求失败 (HTTP ${response.code})"
         })
     }
